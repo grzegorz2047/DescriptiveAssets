@@ -231,3 +231,29 @@ def test_benchmark_tower30_four_views_256px():
     print(f"\ntower30 ({len(scene.solid_indices())} solids, {len(scene.groups)} groups): 4 views at 256 px in {elapsed:.2f} s")
     assert all(n > 1000 for n in hits.values())
     assert elapsed < 6.0
+
+
+def test_stacked_decal_discs_render_whole_not_as_crescents():
+    """Roundels of 1.2 cm discs stacked on a tilted wing: the coarse half-pixel hit threshold (4.5 cm here)
+    let whichever surface's steps crossed it first win, so a ring showed as a crescent and measured
+    0% visible from the top. Near-ties are re-traced with a fine threshold."""
+    rot = (3.0, 0.0, -5.0)
+    wing = make_part("wing", "box", {"size": [10, 0.14, 1.5], "round": 0.06}, [0, 1.5, 0], rot, material="stone")
+    top = wing.to_world(np.array([[0.0, 0.07, 0.0]]))[0]
+    normal = wing.matrix @ np.array([0.0, 1.0, 0.0])
+    discs = [make_part(name, "cylinder", {"radius": r, "height": 0.012}, top + normal * (0.006 + 0.012 * k), rot,
+                       material="paint_red") for k, (name, r) in enumerate((("blue", 0.55), ("white", 0.37), ("red", 0.18)))]
+    scene = Scene([wing, *discs])
+    cam, vb = render(scene, "top", 128)  # mpp 0.09 m: the discs are an eighth of a pixel thick
+    counts = {name: int((vb.part == i).sum()) for i, name in enumerate(("wing", "blue", "white", "red"))}
+    ring = lambda r_out, r_in: math.pi * (r_out ** 2 - r_in ** 2) / cam.mpp ** 2  # noqa: E731
+    assert counts["blue"] == pytest.approx(ring(0.55, 0.37), rel=0.12), counts
+    assert counts["white"] == pytest.approx(ring(0.37, 0.18), rel=0.12), counts
+    assert counts["red"] == pytest.approx(ring(0.18, 0.0), rel=0.15), counts
+    # The ring is whole: blue pixels on both sides of the white disc's center.
+    r, c = pixel_of(cam, *top)
+    blue_cols = np.flatnonzero((vb.part == 1).any(axis=0))
+    assert blue_cols.min() < c - 0.4 / cam.mpp and blue_cols.max() > c + 0.4 / cam.mpp
+    # Silhouettes keep the coarse threshold: the wing alone covers what it covered before.
+    _, alone = render(Scene([wing, *discs], solids=[0]), "top", 128)
+    assert abs(int(alone.hit.sum()) - int(vb.hit.sum())) <= 4

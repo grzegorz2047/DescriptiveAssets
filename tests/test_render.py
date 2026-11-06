@@ -353,3 +353,64 @@ def test_library_shares_one_scale(box1, tower, tmp_path):
     out = sheet_many([box1, tower], tmp_path / "lib" / "library.png", res=200)
     with Image.open(out) as im:
         assert im.height > 200 and im.width > 300
+
+
+def test_grazing_surfaces_are_not_filled_with_outline(tmp_path):
+    """A plate seen 8 degrees above its plane changes depth by 7 px per pixel row: with a fixed 4-px jump
+    threshold every row was an outline (below about 14 degrees surfaces filled black). The threshold now
+    adds the depth change the surface's own slope explains."""
+    asset = asset_from_text(tmp_path, "plate", "asset: plate\nparts:\n"
+                            "  - {name: plate, shape: box, size: [6, 0.1, 6], material: stone, align: bottom}\n"
+                            "  - {name: post, shape: box, size: [0.3, 1.5, 0.3], material: wood, on: plate.top}\n")
+    view = render_raw(asset, ["orbit:20:8"], 256, scale_figure=False, ground=False)["orbit:20:8"]
+    line = np.array(rgb255(asset.style.outline_color), dtype=np.uint8)
+    inside = view.part == 0
+    for _ in range(2):
+        inside &= np.roll(inside, 1, 0) & np.roll(inside, -1, 0) & np.roll(inside, 1, 1) & np.roll(inside, -1, 1)
+    dark = np.all(view.rgb == line, axis=-1)
+    assert inside.sum() > 500
+    assert (dark & inside).sum() <= 0.02 * inside.sum()
+    # A part standing in front of the grazing plate still gets its outline.
+    post = view.part == 1
+    edge = post & ~(np.roll(post, 1, 1) & np.roll(post, -1, 1))
+    assert (dark & edge).sum() >= 0.8 * edge.sum()
+
+
+def test_coplanar_overlaps_and_blend_seams_draw_no_scribbles(tmp_path):
+    """Two overlapping boxes with one top face drew a scribble of alternating part pixels (whichever was
+    traced first won each pixel), and members of a blend group drew their construction seam as a line."""
+    asset = asset_from_text(tmp_path, "slabs", "asset: slabs\nparts:\n"
+                            "  - {name: a, shape: box, size: [3, 0.4, 2], material: stone, at: [-0.8, 0, 0], align: bottom}\n"
+                            "  - {name: b, shape: box, size: [3, 0.4, 2], material: stone, at: [0.8, 0, 0], align: bottom}\n"
+                            "  - {name: c, shape: box, size: [1, 0.4, 2], material: wood, at: [2.8, 0, 0], align: bottom}\n"
+                            "  - {name: hull, shape: sphere, radius: 0.6, material: stone, at: [0, 1.4, -2.5]}\n"
+                            "  - {name: nose, shape: sphere, radius: 0.5, material: stone, at: [0.7, 1.4, -2.5], blend: 0.3,\n"
+                            "     blend_with: hull}\n")
+    view = render_raw(asset, ["top"], 256, scale_figure=False, ground=False)["top"]
+    style = asset.style
+    line = np.array(rgb255(style.outline_color), dtype=np.float64)
+    part = view.part
+    names = {p.name: i for i, p in enumerate(asset.parts)}
+    # The overlap x -0.7..0.7 of a and b: one part owns it, in one piece (no alternating pixels).
+    cam = view.camera
+    lo = int(cam.project(np.array([[-0.65, 0.4, 0]]))[0][0][0])
+    hi = int(cam.project(np.array([[0.65, 0.4, 0]]))[0][0][0])
+    r0 = int(cam.project(np.array([[0, 0.4, -0.8]]))[0][0][1])  # top view: image up is -z
+    r1 = int(cam.project(np.array([[0, 0.4, 0.8]]))[0][0][1])
+    hull_rows = part[r0:r1, lo:hi]
+    slab = np.isin(hull_rows, [names["a"], names["b"]])
+    owners = np.unique(hull_rows[slab])
+    assert len(owners) == 1, owners
+    # No inner line between same-material faces that continue each other (slabs a/b, hull/nose) ...
+    rgb = view.rgb.astype(np.float64)
+    darkened = np.abs(rgb - line).sum(axis=-1) < np.abs(rgb - np.array(rgb255(style.material("stone").color))).sum(axis=-1)
+    seam_cols = [int(cam.project(np.array([[x, 0.4, 0]]))[0][0][0]) for x in (0.7, -0.7)]
+    for col in seam_cols:
+        assert darkened[r0:r1, col - 1:col + 2].sum() <= 2
+    # ... but a material change keeps its line (b against the wood block c at x = 2.3).
+    col = int(cam.project(np.array([[2.3, 0.4, 0]]))[0][0][0])
+    assert darkened[r0:r1, col - 1:col + 2].sum() >= 0.6 * (r1 - r0)
+    # The blend seam between hull and nose (x = 0.35 at z = -2.5) draws no line either.
+    col = int(cam.project(np.array([[0.35, 2.0, -2.5]]))[0][0][0])
+    row = int(cam.project(np.array([[0.35, 2.0, -2.5]]))[0][0][1])
+    assert darkened[row - 4:row + 5, col - 1:col + 2].sum() <= 1

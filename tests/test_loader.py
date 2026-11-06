@@ -611,3 +611,48 @@ def test_style_name_errors(scratch):
     assert "did you mean 'toon'?" in info.value.hint
     e = error("style: defualt\nparts:\n  - {name: a, shape: sphere, radius: 1, material: wood}\n")
     assert "unknown style 'defualt'" in e.message and e.where.startswith("tests/fixtures/t.yaml: style")
+
+
+def test_between_places_a_strut_from_one_anchor_to_another():
+    a = load("""
+        parts:
+          - {name: lower, shape: box, size: [8, 0.1, 1.5], material: wood, at: [0, 0.5, 0]}
+          - {name: upper, shape: box, size: [10, 0.1, 1.5], material: wood, at: [0, 2.2, -0.4], rotate: [0, 0, 3]}
+          - name: strut_l
+            shape: box
+            size: [0.09, 0.14]
+            material: wood
+            between: ["lower@[-0.7, 1, 0.5]", "upper@[-0.62, -1, 0.5]"]
+            rotate: [0, 20, 0]
+            mirror: x
+          - {name: wire, shape: cylinder, radius: 0.01, material: iron, between: [lower.top_left, [0, 2.15, -0.4]]}
+    """)
+    lower, upper = a.part("lower"), a.part("upper")
+    strut = a.part("strut_l")
+    start, end = lower.anchor((-0.7, 1, 0.5)), upper.anchor((-0.62, -1, 0.5))
+    assert strut.anchor("bottom") == pytest.approx(start, abs=1e-9)
+    assert strut.anchor("top") == pytest.approx(end, abs=1e-9)
+    assert strut.params["size"] == pytest.approx((0.09, np.linalg.norm(end - start), 0.14))
+    assert strut.attached_to == "lower"
+    twin = a.part("strut_r")  # mirrored like any part
+    assert twin.anchor("bottom") == pytest.approx(start * [-1, 1, 1], abs=1e-9)
+    wire = a.part("wire")
+    assert wire.params["height"] == pytest.approx(np.linalg.norm(np.array([0, 2.15, -0.4]) - lower.anchor("top_left")))
+    assert wire.anchor("top") == pytest.approx([0, 2.15, -0.4], abs=1e-9)
+
+
+@pytest.mark.parametrize("extra, message", [
+    ("shape: box, size: [0.1, 1, 0.1], between: [a.top, [0, 3, 0]]", "with between, size is [width, depth]"),
+    ("shape: cylinder, radius: 0.1, height: 2, between: [a.top, [0, 3, 0]]", "between sets the height"),
+    ("shape: sphere, radius: 0.1, between: [a.top, [0, 3, 0]]", "between needs a shape with a length axis"),
+    ("shape: cylinder, radius: 0.1, between: [a.top, [0, 1, 0]]", "the two 'between' points are the same point"),
+    ("shape: cylinder, radius: 0.1, between: [a.top], at: [0, 0, 0]", "'at' does not combine with 'between'"),
+    ("shape: cylinder, radius: 0.1, between: [a.top]", "between needs two points"),
+])
+def test_between_errors(extra, message):
+    e = error(f"""
+        parts:
+          - {{name: a, shape: box, size: [1, 1, 1], material: wood, align: bottom}}
+          - {{name: s, material: wood, {extra}}}
+    """)
+    assert message in e.message and "parts[1] (s)" in e.where
