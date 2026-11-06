@@ -16,7 +16,7 @@ lokalnie: „zrób dach bardziej stromy” to zmiana jednego pola `roof.height`.
 Wymagany Python 3.11+ i trzy biblioteki: numpy, pillow, pyyaml (bez GPU).
 
 ```
-git clone <repozytorium> sightline
+git clone https://github.com/grzegorz2047/DescriptiveAssets.git sightline
 cd sightline
 python -m venv .venv
 .venv\Scripts\pip install -e .[dev]          # Linux/macOS: .venv/bin/pip
@@ -189,9 +189,9 @@ angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt mi�
 - Uproszczone siatki mają wspólne wierzchołki, więc ostra krawędź cieniuje się jak wąskie
   sfazowanie, a nie twarde załamanie. Krawędzie biegnące ukośnie do siatki (listwy skrzyni pod 45°)
   są po surface nets lekko ząbkowane i po uproszczeniu zostaje na nich więcej trójkątów. Eksport
-  skrzyni zajmuje ok. 13 s (samo upraszczanie ok. 10 s). Pliki `.glb` skrzyni, rycerza i wieży
-  zaimportowano w Blenderze 5.2 (nazwy, wymiary, brak krawędzi non-manifold); w Godot i Unity
-  jeszcze ich nie otwierano.
+  skrzyni zajmuje ok. 13 s (samo upraszczanie ok. 10 s). Pliki `.glb` przechodzą walidator
+  struktury i otwierają się w Blenderze 5.2 (każda część to osobny obiekt o właściwych wymiarach,
+  zamknięty, bez krawędzi non-manifold); w Godot i Unity jeszcze ich nie otwierano.
 - Poziomy to siatka kolumn terenu z jednym modelem ruchu gracza; obiekt blokuje całe komórki
   swojego obrysu, w których jego bryła schodzi niżej niż wzrost gracza plus skok (pod skrzydłami
   wiatraka da się przejść, a linia wzroku przechodzi pod nimi). Eksport poziomu do glTF nie jest
@@ -199,3 +199,7 @@ angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt mi�
 - Eksport siatek (surface nets) może zostawić kilka krawędzi wspólnych dla czterech trójkątów
   w wklęsłych narożnikach wycięć; `export` wypisuje je w linii `MANIFOLD`, ale ich nie naprawia
   (upraszczanie ich nie pogarsza).
+
+## Licencja
+
+MIT — zobacz plik `LICENSE`.
