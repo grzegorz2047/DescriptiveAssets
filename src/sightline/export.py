@@ -41,6 +41,10 @@ MAX_REFINE = 4.0  # ...but a part's cell is never finer than the base cell / MAX
 PROJECT_STEPS = 2  # Newton steps onto the surface per vertex
 MAX_NODES = 40_000_000  # lattice size limit per group (memory guard, ~0.5 GB peak)
 CHUNK = 1 << 20  # SDF points evaluated per call
+# Decimation presets: the largest distance from the SDF surface a collapse may add, in cells of the
+# part (None: no decimation, the surface-nets mesh as is). See decimate.py.
+QUALITY = {"full": None, "high": 0.125, "medium": 0.25, "low": 0.5}
+DEFAULT_QUALITY = "medium"
 
 SdfFn = Callable[[np.ndarray], np.ndarray]  # (3, N) float32 world points -> (N,) float32
 
@@ -254,6 +258,11 @@ class PartMesh:
     tri_part: np.ndarray  # (T,) int32 scene part index nearest to each triangle center (-> material)
     cell: float  # lattice cell edge used (m)
     colors: np.ndarray | None = field(default=None)  # (V, 3) float32 baked sRGB pattern colors
+    # Decimation (None: the surface-nets mesh as is).
+    source_triangles: int | None = None  # triangles of the surface-nets mesh before decimation
+    tolerance: float | None = None  # m, the largest distance from the SDF surface a collapse could add
+    max_error: float | None = None  # m, measured: largest |SDF| at the vertices and triangle centers
+    source_error: float | None = None  # m, the same measured on the surface-nets mesh
 
     @property
     def vertex_count(self) -> int:
@@ -262,6 +271,11 @@ class PartMesh:
     @property
     def triangle_count(self) -> int:
         return len(self.triangles)
+
+    @property
+    def triangles_before(self) -> int:
+        """Triangles before decimation (= triangle_count when not decimated)."""
+        return self.triangle_count if self.source_triangles is None else self.source_triangles
 
     def volume(self) -> float:
         """Enclosed volume (m^3), positive for outward winding (divergence theorem)."""
@@ -280,6 +294,29 @@ def _check_max_cells(max_cells) -> int:
     return int(max_cells)
 
 
+def resolve_quality(quality: str | None, max_tris, bake_colors: bool = False) -> tuple[str, float | None, int | None]:
+    """(preset name, decimation tolerance in cells or None for no decimation, triangle budget or None).
+
+    quality None means DEFAULT_QUALITY, or "full" with bake_colors: vertex colors need the dense
+    surface-nets vertices, so baking never decimates."""
+    if quality is not None and (not isinstance(quality, str) or quality not in QUALITY):
+        raise SightlineError(f"quality must be one of {', '.join(QUALITY)}, got {quality!r}",
+                             hint=f"'{DEFAULT_QUALITY}' is the default; 'full' keeps every surface-nets triangle")
+    if max_tris is not None and (isinstance(max_tris, bool) or not isinstance(max_tris, (int, np.integer))
+                                 or max_tris < 4):
+        raise SightlineError(f"max_tris must be an integer >= 4, got {max_tris!r}",
+                             hint="a triangle budget for the whole asset, e.g. 2000 for a small prop")
+    if bake_colors and (quality not in (None, "full") or max_tris is not None):
+        raise SightlineError("bake_colors needs the full mesh: vertex colors need the dense surface-nets vertices",
+                             hint="drop --quality/--max-tris (baking exports quality full) or drop --bake-colors")
+    if quality is None:
+        quality = "full" if bake_colors else DEFAULT_QUALITY
+    if quality == "full" and max_tris is not None:
+        raise SightlineError("max_tris decimates, but quality 'full' keeps every triangle",
+                             hint="use max_tris with quality high, medium or low")
+    return quality, QUALITY[quality], None if max_tris is None else int(max_tris)
+
+
 def _thinnest(scene: Scene, g: Group) -> float:
     """Smallest full local extent among the group's members and their cutters (m)."""
     ids = list(g.members) + [c for m in g.members for c in g.cutters.get(m, [])]
@@ -291,9 +328,13 @@ def group_cell(scene: Scene, g: Group, base_cell: float) -> float:
     return max(min(base_cell, _thinnest(scene, g) / MIN_FEATURE_CELLS), base_cell / MAX_REFINE)
 
 
+def _group_fn(scene: Scene, g: Group) -> SdfFn:
+    return lambda p3: scene.group_dist3(g, p3)
+
+
 def mesh_group(scene: Scene, g: Group, cell: float) -> PartMesh | None:
     """Surface-nets mesh of one group with its cuts and blends applied (None if nothing is left)."""
-    fn = lambda p3: scene.group_dist3(g, p3)  # noqa: E731
+    fn = _group_fn(scene, g)
     verts, tris = surface_nets(fn, g.aabb_min, g.aabb_max, cell)
     if len(tris) == 0:
         return None
@@ -313,9 +354,14 @@ def mesh_group(scene: Scene, g: Group, cell: float) -> PartMesh | None:
     )
 
 
-def build_meshes(asset: Asset, max_cells: int = 128, bake_colors: bool = False) -> list[PartMesh]:
-    """One mesh per blend group / solid part of the asset, in file order (helpers excluded)."""
+def build_meshes(asset: Asset, max_cells: int = 128, bake_colors: bool = False, quality: str | None = None,
+                 max_tris: int | None = None) -> list[PartMesh]:
+    """One mesh per blend group / solid part of the asset, in file order (helpers excluded).
+
+    quality: decimation preset (QUALITY; None = DEFAULT_QUALITY, or "full" when baking colors).
+    max_tris: triangle budget for the whole asset (decimates further, relaxing the tolerance)."""
     max_cells = _check_max_cells(max_cells)
+    _, tolerance, max_tris = resolve_quality(quality, max_tris, bake_colors)
     scene = asset.scene()
     if not scene.solid_indices():
         raise SightlineError(f"asset '{asset.name}' has no solid parts to export",
@@ -331,10 +377,56 @@ def build_meshes(asset: Asset, max_cells: int = 128, bake_colors: bool = False) 
             meshes.append(mesh)
     if not meshes:
         raise SightlineError(f"asset '{asset.name}': every solid part is cut away, nothing to export")
+    if tolerance is not None:
+        meshes = _decimate(scene, meshes, tolerance, max_tris)
     if bake_colors:
         for mesh in meshes:
             bake_mesh_colors(asset, mesh)
     return meshes
+
+
+def decimate_meshes(asset: Asset, meshes: list[PartMesh], quality: str = DEFAULT_QUALITY,
+                    max_tris: int | None = None) -> list[PartMesh]:
+    """Decimate build_meshes(..., quality="full") output of `asset` (new meshes; the input is kept)."""
+    _, tolerance, max_tris = resolve_quality(quality, max_tris)
+    if tolerance is None:
+        return list(meshes)
+    if any(m.colors is not None for m in meshes):
+        raise SightlineError("cannot decimate meshes with baked colors", hint="decimate first, then bake")
+    return _decimate(asset.scene(), meshes, tolerance, max_tris)
+
+
+def _decimate(scene: Scene, meshes: list[PartMesh], tolerance: float, max_tris: int | None) -> list[PartMesh]:
+    """Quadric edge collapse of every part mesh (decimate.py), tolerance in cells of each part."""
+    from .decimate import DecimationInput, decimate
+
+    groups = {scene.parts[g.members[0]].name: g for g in scene.groups}
+    unknown = [m.name for m in meshes if m.name not in groups]
+    if unknown:
+        raise SightlineError(f"cannot decimate mesh '{unknown[0]}': no part or blend group of that name",
+                             hint="decimate the per-part meshes of build_meshes(..., quality='full'), then merge")
+    materials = sorted({p.material for p in scene.parts if p.material is not None})
+    part_material = np.array([materials.index(p.material) if p.material in materials else -1 for p in scene.parts])
+    inputs = [DecimationInput(positions=m.positions, triangles=m.triangles, normals=m.normals,
+                              labels=part_material[m.tri_part], fn=_group_fn(scene, groups[m.name]), cell=m.cell)
+              for m in meshes]
+    out = []
+    for m, r in zip(meshes, decimate(inputs, tolerance, max_tris)):
+        out.append(PartMesh(
+            name=m.name,
+            members=list(m.members),
+            positions=r.positions.astype(F32),
+            normals=r.normals.astype(F32),
+            triangles=r.triangles.astype(np.uint32),
+            vertex_part=m.vertex_part[r.vertex_ids],
+            tri_part=m.tri_part[r.triangle_ids],
+            cell=m.cell,
+            source_triangles=m.triangles_before,
+            tolerance=r.tolerance,
+            max_error=r.max_error,
+            source_error=r.source_error if m.source_error is None else max(m.source_error, r.source_error),
+        ))
+    return out
 
 
 def merge_meshes(meshes: list[PartMesh], name: str) -> PartMesh:
@@ -343,6 +435,8 @@ def merge_meshes(meshes: list[PartMesh], name: str) -> PartMesh:
     colors = None
     if all(m.colors is not None for m in meshes):
         colors = np.concatenate([m.colors for m in meshes])
+    decimated = [m for m in meshes if m.source_triangles is not None]
+    worst = lambda key: max(getattr(m, key) for m in decimated) if decimated else None  # noqa: E731
     return PartMesh(
         name=name,
         members=[n for m in meshes for n in m.members],
@@ -353,18 +447,46 @@ def merge_meshes(meshes: list[PartMesh], name: str) -> PartMesh:
         tri_part=np.concatenate([m.tri_part for m in meshes]),
         cell=min(m.cell for m in meshes),
         colors=colors,
+        source_triangles=sum(m.triangles_before for m in meshes) if decimated else None,
+        tolerance=worst("tolerance"),
+        max_error=worst("max_error"),
+        source_error=worst("source_error"),
     )
 
 
+def _mm(value: float | None, width: int = 6) -> str:
+    return f"{'-':>{width}}" if value is None else f"{value * 1000:>{width}.2f}"
+
+
 def mesh_summary(meshes: list[PartMesh]) -> str:
-    """Aligned text table: part, vertices, triangles, cell, volume; plus totals."""
-    width = max([4] + [len(m.name) for m in meshes])
-    lines = [f"{'PART':<{width}}  {'VERTS':>7}  {'TRIS':>7}  {'CELL':>6}  {'VOLUME':>8}"]
+    """Aligned text table: part, vertices, triangles exported and before decimation, cell, largest
+    distance of the vertices and triangle centers from the SDF surface (mm, decimated meshes only),
+    volume; plus totals."""
+    width = max([5] + [len(m.name) for m in meshes])
+    lines = [f"{'PART':<{width}}  {'VERTS':>7}  {'TRIS':>7}  {'BEFORE':>7}  {'CELL':>6}  {'DEV_MM':>6}  {'VOLUME':>8}"]
     for m in meshes:
-        lines.append(f"{m.name:<{width}}  {m.vertex_count:>7}  {m.triangle_count:>7}  {m.cell:>6.3f}  {m.volume():>8.3f}")
+        lines.append(f"{m.name:<{width}}  {m.vertex_count:>7}  {m.triangle_count:>7}  {m.triangles_before:>7}  "
+                     f"{m.cell:>6.3f}  {_mm(m.max_error)}  {m.volume():>8.3f}")
+    errors = [m.max_error for m in meshes if m.max_error is not None]
     lines.append(f"{'total':<{width}}  {sum(m.vertex_count for m in meshes):>7}  "
-                 f"{sum(m.triangle_count for m in meshes):>7}")
+                 f"{sum(m.triangle_count for m in meshes):>7}  {sum(m.triangles_before for m in meshes):>7}  "
+                 f"{'':>6}  {_mm(max(errors) if errors else None)}")
     return "\n".join(lines)
+
+
+def format_decimation(meshes: list[PartMesh]) -> str:
+    """One DECIMATE line for the export report: triangles before -> after and the measured accuracy."""
+    after = sum(m.triangle_count for m in meshes)
+    before = sum(m.triangles_before for m in meshes)
+    done = [m for m in meshes if m.source_triangles is not None]
+    if not done:
+        return f"DECIMATE  off: {after} surface-nets triangles as meshed (quality full)"
+    dev = max(m.max_error for m in done)
+    src = max(m.source_error for m in done)
+    tols = sorted({round(m.tolerance * 1000, 2) for m in done})
+    tol = f"{tols[0]:.2f}" if len(tols) == 1 else f"{tols[0]:.2f}-{tols[-1]:.2f}"
+    return (f"DECIMATE  {before} -> {after} triangles ({before / max(after, 1):.1f}x fewer); largest distance from the "
+            f"SDF surface {dev * 1000:.2f} mm (tolerance {tol} mm, surface nets alone {src * 1000:.2f} mm)")
 
 
 def edge_report(meshes: list[PartMesh]) -> list[tuple[str, int, int]]:
@@ -583,12 +705,14 @@ def _write(path: pathlib.Path, data: bytes) -> None:
 
 
 def export_glb(asset: Asset, out_path, max_cells: int = 128, per_part: bool = True, bake_colors: bool = False,
-               *, meshes: list[PartMesh] | None = None) -> pathlib.Path:
+               *, meshes: list[PartMesh] | None = None, quality: str | None = None,
+               max_tris: int | None = None) -> pathlib.Path:
     """Write a glTF 2.0 binary. per_part: one node + mesh per blend group / solid part, named after
-    the part; else one merged node named after the asset. `meshes` reuses build_meshes() output."""
+    the part; else one merged node named after the asset. `meshes` reuses build_meshes() output;
+    otherwise quality / max_tris decimate as in build_meshes."""
     path = _out_file(out_path, asset, ".glb", "export_glb")
     if meshes is None:
-        meshes = build_meshes(asset, max_cells, bake_colors)
+        meshes = build_meshes(asset, max_cells, bake_colors, quality, max_tris)
     elif bake_colors:
         meshes = [m if m.colors is not None else bake_mesh_colors(asset, m) for m in meshes]
     if not per_part:
@@ -609,7 +733,8 @@ def _rows(line: str, values: np.ndarray, decimals: int | None = None) -> str:
     return (line * len(values)) % tuple(values.ravel().tolist())
 
 
-def export_obj(asset: Asset, out_path, max_cells: int = 128, *, meshes: list[PartMesh] | None = None) -> pathlib.Path:
+def export_obj(asset: Asset, out_path, max_cells: int = 128, *, meshes: list[PartMesh] | None = None,
+               quality: str | None = None, max_tris: int | None = None) -> pathlib.Path:
     """Write OBJ + MTL next to it: `o <part>` per part, `usemtl <material>` per material, Kd from the style.
 
     Kd/Ks are the style's sRGB values as written (OBJ has no color-space convention).
@@ -617,7 +742,7 @@ def export_obj(asset: Asset, out_path, max_cells: int = 128, *, meshes: list[Par
     path = _out_file(out_path, asset, ".obj", "export_obj")
     mtl_path = path.with_suffix(".mtl")
     if meshes is None:
-        meshes = build_meshes(asset, max_cells)
+        meshes = build_meshes(asset, max_cells, quality=quality, max_tris=max_tris)
     parts = asset.scene().parts
     mat_names, part_mat = _used_materials(parts, meshes)
 

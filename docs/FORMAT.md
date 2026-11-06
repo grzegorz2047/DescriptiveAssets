@@ -387,7 +387,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline check [<asset>...] [--json]` | PASS/FAIL per check; no names = every asset |
 | `sightline diff <asset> [--against REV\|path]` | report changes since git HEAD (or a revision or an older copy) |
 | `sightline sheet [<asset>...] [--out PATH] [--res N] [--view V]` | `out/library.png`: assets side by side at one scale with the human |
-| `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table |
+| `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--quality full\|high\|medium\|low] [--max-tris N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table with triangles before and after decimation |
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
@@ -406,8 +406,21 @@ pixel is the saved PNG's pixel (small views are upscaled ×2, which halves the s
 shine × 0.6. `--merged` joins the part meshes into one node (it is not a boolean union: faces
 inside overlaps stay). `--bake-colors` adds `COLOR_0` with the material patterns, using
 baseColorFactor × COLOR_0 = the baked color. Parts thinner than 3 base cells are meshed finer
-(down to a quarter of the base cell), so small thin parts can cost many triangles. OBJ `Kd` is the
-style's sRGB color as written.
+(down to a quarter of the base cell). OBJ `Kd` is the style's sRGB color as written.
+
+**Decimation:** every part mesh is then reduced on its own by quadric edge collapse; parts stay
+closed, keep their names, materials and topology (holes stay holes), their bounding box shrinks by at
+most 5 mm and never grows, and sharp edges keep a narrow strip of triangles so they still shade
+crisp. `--quality` sets how far the surface may move, in cells of the part: `high` 1/8, `medium`
+1/4 (the default), `low` 1/2; `full` keeps the surface-nets mesh as meshed (the default with
+`--bake-colors`, which needs the dense vertices and cannot be combined with another quality or
+`--max-tris`). `--max-tris N` is a budget for the whole asset: if the quality pass leaves more
+triangles, the tolerance doubles until the budget is met. Flat faces cost almost nothing, curved
+parts keep more triangles; at the defaults the crate goes from about 400 000 to about 3 000
+triangles, the knight from 71 000 to 2 400. The mesh table shows `TRIS` (exported), `BEFORE`
+(surface nets) and `DEV_MM`, the largest measured distance of the vertices and triangle centers from
+the SDF surface; the `DECIMATE` line sums it up and also gives the surface-nets mesh's own distance
+(sawtoothed edges can already be off by up to 0.42 cell).
 
 ## 8. Errors
 

@@ -198,8 +198,10 @@ constraint (`ratio: {a: roof.height, b: total.height, range: [0.25, 0.35], why: 
 ## 7. Exporting for game engines
 
 ```
-sightline export knight                     # out/knight/knight.glb, one node per part
-sightline export knight --bake-colors       # + COLOR_0 vertex colors with the patterns
+sightline export knight                     # out/knight/knight.glb, one node per part, decimated
+sightline export crate --max-tris 1500      # a triangle budget for the whole asset
+sightline export knight --quality high      # finer: high | medium (default) | low | full
+sightline export knight --bake-colors       # + COLOR_0 vertex colors with the patterns (full mesh)
 sightline export crate --format obj         # out/crate/crate.obj + crate.mtl
 sightline export lighthouse --merged        # one node instead of one per part
 ```
@@ -207,9 +209,10 @@ sightline export lighthouse --merged        # one node instead of one per part
 The `.glb` is glTF 2.0 binary in meters with +Y up — the glTF convention, so no axis conversion.
 Each solid part (or blend group) is its own node and mesh, named after the part, so engines can
 address, hide, animate or swap parts. One material per style material (PBR base color, metallic
-from `shine`). The command prints a mesh table, a `MANIFOLD` line (surface nets can leave a few
-edges shared by four triangles at the concave corners of a cut: engines import it, Blender's
-manifold check and 3D printing flag it) and `glTF structure OK` after validating the file.
+from `shine`). The command prints a mesh table, a `DECIMATE` line, a `MANIFOLD` line (surface
+nets can leave a few edges shared by four triangles at the concave corners of a cut: engines import
+it, Blender's manifold check and 3D printing flag it; decimation never makes it worse) and
+`glTF structure OK` after validating the file.
 
 - **Godot 4:** drop the `.glb` into the project; it imports as a scene with one `MeshInstance3D`
   per part. Use `--bake-colors` and a material that multiplies vertex color to keep the patterns.
@@ -218,9 +221,31 @@ manifold check and 3D printing flag it) and `glTF structure OK` after validating
   Sightline (glTF's forward) — check once that it faces where your game expects.
 - **Blender:** File → Import → glTF 2.0; one object per part, named as in the YAML, 1 unit = 1 m.
 
-`--max-cells` (default 128) sets the mesh resolution along the longest side. Thin parts are meshed
-finer automatically, which can make small props heavy (the crate is about 400k triangles at 128;
-use `--max-cells 48` for props). There is no decimation yet.
+`--max-cells` (default 128) sets the mesh resolution along the longest side; thin parts are meshed
+finer automatically. The meshes are then decimated part by part: flat faces collapse to a few
+triangles, curved parts keep what their shape needs, every part stays closed and keeps its name,
+materials and bounding box (within 5 mm), and sharp edges keep a thin strip of triangles so they
+shade crisp. At the default `--quality medium` the crate drops from about 400 000 to about 3 000
+triangles (80 KB `.glb`), the knight from 71 000 to 2 400. Read the table before you hand over:
+
+```
+PART           VERTS     TRIS   BEFORE    CELL  DEV_MM    VOLUME
+body              56      108   172800   0.007    0.96     0.636
+brace_front      429      854     9924   0.007    1.79     0.003
+...
+DECIMATE  399792 -> 2950 triangles (135.5x fewer); largest distance from the SDF surface 2.29 mm (tolerance 1.67-1.80 mm, surface nets alone 2.29 mm)
+```
+
+- `TRIS` is what the file holds, `BEFORE` what surface nets made; `DEV_MM` is measured (distance of
+  the vertices and triangle centers from the true surface). When it equals the "surface nets alone"
+  number, the error was already in the meshing (sawtoothed edges), not added by decimation.
+- A part that keeps many triangles for its shape (like the crate's 45° braces, whose sawtoothed
+  edges cannot be straightened within the tolerance) is a hint: `--quality low`, a `--max-tris`
+  budget, or a lower `--max-cells` all help.
+- The designer gives a budget ("under 2k triangles")? Use `--max-tris 2000`: the tolerance relaxes
+  until the asset fits, and the `DECIMATE` line shows the tolerance it needed.
+- `--bake-colors` exports the full mesh (vertex colors need the dense vertices), so it is heavy;
+  prefer plain materials for game props.
 
 ## 8. Before you hand over
 

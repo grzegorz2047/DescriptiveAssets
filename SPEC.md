@@ -63,6 +63,7 @@ src/sightline/
   inspect.py     measurements -> report dict -> text
   checks.py      assertion engine over the report
   export.py      surface nets mesh -> glTF 2.0 (.glb, part per node) and OBJ + MTL
+  decimate.py    quadric-error edge collapse of the part meshes (export)
   reference.py   reference image analysis, model-vs-reference matching, view fitting
   levels/        model.py loader.py nav.py sight.py report.py render.py checks.py
   cli.py         `sightline` command
@@ -632,7 +633,8 @@ Meshing: naive surface nets over an SDF on a voxel grid (cell = longest side / `
 vertex per sign-changing cell (mean of edge crossings, then 1–2 projection steps onto the surface
 along the SDF gradient for sharper results), one quad per sign-changing edge → two triangles with
 consistent outward winding (normals from the SDF gradient). Coordinates in meters, Y up — the glTF
-convention, so no axis conversion.
+convention, so no axis conversion. Then **decimation** (`decimate.py`, section 9.1) collapses each
+part mesh to game-ready triangle counts (crate 400k → ~3k triangles) unless `quality="full"`.
 
 - `export_glb(asset, out_path, max_cells=128, per_part=True, bake_colors=False) -> Path` —
   **glTF 2.0 binary**, written by hand (JSON chunk + BIN chunk, 4-byte aligned, `asset.version
@@ -652,12 +654,30 @@ convention, so no axis conversion.
 
 Implementation notes:
 
-- Signatures add keyword-only `meshes=`: `export_glb(asset, out_path, max_cells=128, per_part=True,
-  bake_colors=False, *, meshes=None)`, `export_obj(asset, out_path, max_cells=128, *, meshes=None)`;
-  `build_meshes(asset, max_cells, bake_colors) -> list[PartMesh]` builds once for both, and
-  `mesh_summary`, `read_glb`, `accessor_data`, `validate_glb(path) -> [problems]` are public.
+- Signatures add keyword-only `meshes=`, `quality=`, `max_tris=`: `export_glb(asset, out_path,
+  max_cells=128, per_part=True, bake_colors=False, *, meshes=None, quality=None, max_tris=None)`,
+  `export_obj(asset, out_path, max_cells=128, *, meshes=None, quality=None, max_tris=None)`;
+  `build_meshes(asset, max_cells=128, bake_colors=False, quality=None, max_tris=None) ->
+  list[PartMesh]` builds once for both (decimated), `decimate_meshes(asset, meshes, quality="medium",
+  max_tris=None)` decimates `quality="full"` meshes later, and `mesh_summary`, `format_decimation`,
+  `format_edges`, `read_glb`, `accessor_data`, `validate_glb(path) -> [problems]` are public.
   `out_path` may be a folder (`<folder>/<asset>.glb`) or have no suffix; another suffix is an error.
   `max_cells` must be an integer 8..512; one group lattice is capped at 40M nodes.
+- `quality` is a preset of `export.QUALITY` = `{full: None, high: 1/8, medium: 1/4, low: 1/2}`: the
+  most a collapse may move the surface, in cells of the part (so it follows `max_cells` and the thin
+  part refinement); `full` keeps every surface-nets triangle. `None` means `medium`, or `full` with
+  `bake_colors` (vertex colors need the dense vertices); `bake_colors` with another quality or with
+  `max_tris` is an error, as is `max_tris` with `full`. `max_tris` (integer ≥ 4) is a budget for the
+  whole asset: when the `quality` pass leaves more, the tolerance doubles (up to 6 times) until the
+  budget is met.
+- `PartMesh` records decimation: `source_triangles` (surface-nets count, `None` when not decimated;
+  `triangles_before` falls back to `triangle_count`), `tolerance` (m, after any budget relaxing),
+  `max_error` and `source_error` (m, measured: largest |SDF| at the vertices and triangle centers of
+  the decimated and of the surface-nets mesh). `mesh_summary` columns: PART, VERTS, TRIS (exported),
+  BEFORE (surface nets), CELL, DEV_MM (`max_error` in mm, `-` when not decimated), VOLUME; the total
+  row sums VERTS, TRIS, BEFORE and takes the largest DEV_MM. `format_decimation` prints
+  `DECIMATE  <before> -> <after> triangles (<n>x fewer); largest distance from the SDF surface …
+  (tolerance …, surface nets alone …)` or `DECIMATE  off: …`.
 - Thin parts get a finer mesh: a blend group whose thinnest member or cutter is under 3 base cells
   uses `cell = max(thinnest / 3, base / 4)`; other groups keep the SPEC cell exactly.
 - Lattice: nodes centered on each group's AABB (symmetric parts mesh symmetrically), node parity per
@@ -676,7 +696,44 @@ Implementation notes:
 - OBJ `Kd`/`Ks` are the style's sRGB values as written; `Ks` = shine, `Ns 24` when shine > 0.
 - Extras: node `extras.parts` (members), `asset.extras {asset, style}`, bufferView targets.
 - Gaps: edges sharper than ~90° are slightly sawtoothed (within 0.42 cell), vertex normals are
-  averaged across sharp edges, no decimation.
+  averaged across sharp edges (vertices are shared, so a sharp edge shades as a narrow strip, not a
+  hard crease). Sawtoothed edges that do not run along the lattice (the crate's 45° braces) keep
+  more triangles after decimation, since straightening them would move the surface by more than
+  the tolerance.
+
+### 9.1 Decimation (`decimate.py`)
+
+`decimate(parts: list[DecimationInput], tolerance, max_tris=None) -> list[DecimationResult]`: each
+input is one closed part mesh (positions, triangles, SDF-gradient normals, per-triangle material
+labels) with its group SDF and cell; `tolerance` is in cells. All parts are decimated in one
+priority order but collapses never join two parts. Results keep the surviving input vertex and
+triangle ids (export carries `vertex_part`/`tri_part` through them), the normals, the tolerance
+used and the measured errors. Pure numpy, no loop over edges:
+
+- **Quadrics:** each vertex sums the area-weighted squared distance to its original triangles'
+  planes in 6-D (position, normal × 1 cell; Garland & Heckbert 1998). The collapse optimum solves
+  the 6 × 6 system (vectorized Cholesky, regularized toward the edge midpoint by 1e-3 × area so a
+  flat quadric gives the midpoint), clamped to the part's box. The normal term makes the strip of
+  triangles along a sharp edge expensive to widen, so edges stay crisp; flat faces are free.
+- **Rounds:** rank candidates by RMS 6-D error in half-octave buckets with a fixed hash breaking ties
+  (plain index order would give few local minima), take an independent set whose neighborhoods
+  (triangles touching either end) are disjoint — local minima within two rings, 3 passes — check
+  them, apply all at once. Per-edge optima are cached until an end moves; vertex arrays are compacted
+  as they shrink. Candidate filter: RMS 6-D error ≤ 2 × tolerance; the checks hold the real distance.
+- **Checks** (a failure retries the collapse onto either end, then waits until a vertex of its
+  neighborhood moves): link condition (exactly 2 common neighbors) and valences ≥ 3 after the
+  collapse; vertices of non-manifold edges or with several fans never move (`nonmanifold_vertices`);
+  seam vertices between materials only collapse along the seam; the box rule (a vertex within
+  min(5 mm, tolerance) of a box side stays within it, the box never grows); no degenerate triangle,
+  no triangle turning by over ~78°, unit face normal · sum of its vertex normals > 0.3 (the new
+  vertex's normal is the SDF gradient there); |SDF| ≤ tolerance at the new vertex and at the center
+  and a near-corner point (barycentric 0.75/0.125/0.125) of every changed triangle; a changed
+  triangle whose interpolated normal near a corner is over 20° off the SDF normal there is at most
+  1.5 cells wide. Collapses with zero quadric error between equal normals (inside a flat face) skip
+  the SDF probes.
+- **Stop:** no candidate left, or the last 10 rounds removed under 1% of the triangles; with
+  `max_tris`, a pass that ends above the budget doubles the tolerance (≤ 6 times) and the relaxed
+  passes stop at the budget. Deterministic (fixed hash, no randomness).
 
 ## 10. Levels (`levels/`)
 
@@ -804,7 +861,8 @@ sightline inspect <asset> [--json] [--res N] [--compare A[,B]]
 sightline check [<asset>...] [--json]                    # no args: all assets; exit 1 on FAIL, 2 on error
 sightline diff <asset> [--against REV|path]              # default: git HEAD version of the file
 sightline sheet [<asset>...] [--out PATH] [--res N] [--view V]   # library sheet at shared scale
-sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-cells N] [--out PATH]
+sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-cells N]
+                 [--quality full|high|medium|low] [--max-tris N] [--out PATH]
 sightline ref <image> [--view V] [--height M] [--mask PATH] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
 sightline level render|play|check <level> [--json] [--out DIR]
@@ -834,10 +892,13 @@ UTF-8 (reports contain → · — °, which the Windows console code page cannot
   with a hint (`--against path/to/old.yaml`). `--against` that names an existing file compares with
   that file instead. An error in the old copy is reported as `in --against <path>: ...` (or
   `in git <rev>:<file>: ...`), not against the working file.
-- `export` builds the meshes once, prints `mesh_summary`, a `MANIFOLD` line (`export.edge_report`:
-  open edges and edges shared by more than two triangles per mesh; reported, not repaired) and, for
-  glb, the result of `validate_glb` (`glTF structure OK`); `--bake-colors` with `--format obj` is an error;
-  `--merged` with obj writes one `o` object.
+- `export` builds the meshes once (decimated: `--quality` default medium, `full` with
+  `--bake-colors`; `--max-tris` budget), prints `EXPORT  <asset>: <format>, <n> part nodes, max_cells
+  N, quality Q[, max_tris N]`, `mesh_summary`, the `DECIMATE` line, a `MANIFOLD` line
+  (`export.edge_report`: open edges and edges shared by more than two triangles per mesh; reported,
+  not repaired) and, for glb, the result of `validate_glb` (`glTF structure OK`); `--bake-colors`
+  with `--format obj`, with `--quality` other than full or with `--max-tris` is an error; `--merged`
+  with obj writes one `o` object.
 - `match --fit-view` prints `format_fit` and matches from the best view. `--res` of render, sheet,
   inspect and match must be an integer from 16 to 4096 (SightlineError otherwise).
 - `new` lists every matching check kind per brief sentence (`matches_reference` first), adds a
