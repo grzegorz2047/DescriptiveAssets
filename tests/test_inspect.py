@@ -146,6 +146,60 @@ def test_stable_vs_unstable_overhang():
     assert centered["symmetry"]["x"] >= 0.97
 
 
+CART = """
+    parts:
+      - {name: beam, shape: box, size: [1, 0.3, 9], material: wood, at: [0, 0.6, 0]}
+      - {name: wheel_l, shape: cylinder, radius: 0.3, height: 0.1, round: 0.03, material: paint_black,
+         at: [-0.6, 0.3, 3.8], rotate: [0, 0, 90], mirror: x}
+"""
+
+
+def test_stable_uses_thin_ground_contacts_from_the_sdf():
+    # Round tyres at the front and a 2 cm skid at the back hold the beam up. Both contacts are far thinner
+    # than the 9.4 cm voxel cell: a footprint from the lowest voxel layers saw only the tyres and called a
+    # center of mass between them "1.1 m outside the footprint".
+    skid = "      - {name: skid, shape: capsule, radius: 0.01, height: 0.47, material: iron, at: [0, 0.235, -4.2]}\n"
+    r = inspect_asset(load(CART + skid, "cart"), res=32, views=("front",))
+    m = r["mass"]
+    assert r["voxel_cell"] > 0.09
+    assert m["stable"] is True
+    assert m["support"] == ["wheel_l", "wheel_r", "skid"]
+    # Margin: COM to the hull edge from the skid foot to the outer tyre edge (tyre patch +-11 cm in the band).
+    a, b, q = np.array([0.01, -4.2]), np.array([0.65, 3.8 - 0.11]), np.array(m["center"])[[0, 2]]
+    e = b - a
+    assert m["support_margin"] == pytest.approx(abs(e[0] * (q - a)[1] - e[1] * (q - a)[0]) / np.hypot(*e), abs=0.02)
+    assert not any(w.startswith("unstable") for w in r["warnings"])
+    assert "ground contacts: wheel_l, wheel_r, skid" in format_report(r)
+
+
+def test_unstable_names_the_contacts_and_the_side():
+    r = inspect_asset(load(CART, "cart_no_skid"), res=32, views=("front",))
+    m = r["mass"]
+    assert m["stable"] is False and m["support"] == ["wheel_l", "wheel_r"] and m["tips_toward"] == "-z"
+    tyre_patch = (2 * 0.3 * 0.02) ** 0.5  # half the tyre's contact patch in the 2 cm band
+    assert m["support_margin"] == pytest.approx(-(3.8 - tyre_patch - m["center"][2]), abs=0.02)
+    warning = next(w for w in r["warnings"] if w.startswith("unstable"))
+    assert "behind (-z) the ground contacts (wheel_l, wheel_r)" in warning
+
+
+def test_ground_contacts_skip_parts_above_the_band_and_cut_sheets():
+    from sightline.inspect import SUPPORT_BAND, ground_contacts, measured_scene
+
+    a = load("""
+        parts:
+          - {name: wall, shape: box, size: [4, 3, 0.5], material: stone, align: bottom}
+          - {name: door, shape: box, size: [1, 2, 1], op: cut, on: wall.bottom, align: bottom}
+          - {name: step, shape: box, size: [0.5, 0.2, 0.5], material: stone, at: [0, 0.04, 1], align: bottom}
+        """, "doorway")
+    scene, solids = measured_scene(a)
+    pts, touching = ground_contacts(scene, solids, 0.0, 0.1)
+    assert [a.parts[i].name for i in touching] == ["wall"]  # the step hovers 4 cm up, over the 2 cm band
+    assert SUPPORT_BAND == 0.02
+    # The door's cut face is flush with the wall's bottom: the zero-distance sheet over the doorway is no contact.
+    assert not ((np.abs(pts[:, 0]) < 0.45) & (np.abs(pts[:, 1]) < 0.2)).any()
+    assert pts[:, 0].min() == pytest.approx(-2.0, abs=0.011) and pts[:, 0].max() == pytest.approx(2.0, abs=0.011)
+
+
 # ----------------------------------------------------------------------------- contacts, floating
 
 
