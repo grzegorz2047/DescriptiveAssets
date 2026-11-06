@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .camera import Camera, fixed_camera, make_cameras, view_basis
+from .camera import Camera, fixed_camera, make_cameras, parse_orbit, view_basis
 from .errors import SightlineError
 from .march import ViewBuffers, march, trace
 from .model import F32, Material, Part, Scene, make_part
@@ -688,8 +688,9 @@ def render_raw(asset, views=None, res=None, *, mpp: float | None = None, scale_f
     """Render views sharing one meters-per-pixel scale; no caption, no upscale.
 
     `res` = pixels on the long side of the largest view (default: the style's), or a fixed `mpp`.
-    `ground` / `shadows` default to the style. Other modules (inspect, reference) use this for raw
-    pixels: `ViewRender.part` and `.rgb` give the shaded color of every visible part.
+    `ground` / `shadows` default to the style. Views from below the ground (orbit elevation < 0) leave
+    the slab out, which would hide the asset's underside. Other modules (inspect, reference) use this
+    for raw pixels: `ViewRender.part` and `.rgb` give the shaded color of every visible part.
     """
     style = asset.style
     views = _views(views, style)
@@ -697,7 +698,14 @@ def render_raw(asset, views=None, res=None, *, mpp: float | None = None, scale_f
     lay = layout(asset, scale_figure, ground)
     cams = make_cameras(views, lay.frame_min, lay.frame_max, res=res, mpp=_mpp(mpp))
     ao_step = 0.012 * lay.size
-    return {v: render_view(lay.scene, style, cams[v], lay.ground, outline, shadows, ao_step) for v in views}
+    return {v: render_view(lay.scene, style, cams[v], None if _from_below(v) else lay.ground, outline, shadows, ao_step)
+            for v in views}
+
+
+def _from_below(view: str) -> bool:
+    """True for orbit views with a negative elevation (looking up at the asset)."""
+    orbit = parse_orbit(view)
+    return orbit is not None and orbit[1] < 0
 
 
 def present_view(asset, r: ViewRender, upscale: int | None = None, caption: bool = True) -> Image.Image:
@@ -953,12 +961,14 @@ def label_parts(img: Image.Image, ids: np.ndarray, parts: list[int], names: list
 # ----------------------------------------------------------------------------- files
 
 
-def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = True) -> dict[str, pathlib.Path]:
+def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = True,
+                  ground: bool | None = None) -> dict[str, pathlib.Path]:
     """Write `<view>.png` for every view (default: the style's; ':' in orbit names becomes '_'),
     `parts.png` (part map of the iso view, or front / the first view when iso is not rendered) and
     `sheet.png` (all of them under a header) into out_dir, creating it.
 
-    Returns {view: path, ..., "parts": path, "sheet": path}. scale_figure=False is `--no-human`.
+    Returns {view: path, ..., "parts": path, "sheet": path}. scale_figure=False is `--no-human`,
+    ground=False is `--no-ground` (default: the style's ground.show).
     """
     from .sheet import make_sheet
 
@@ -966,7 +976,7 @@ def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = 
     out.mkdir(parents=True, exist_ok=True)
     style = asset.style
     views = _views(views, style)
-    raws = render_raw(asset, views, res, scale_figure=scale_figure)
+    raws = render_raw(asset, views, res, scale_figure=scale_figure, ground=ground)
     images = {v: present_view(asset, r) for v, r in raws.items()}
     map_view = "iso" if "iso" in views else ("front" if "front" in views else views[0])
     part_map = render_part_map(asset, map_view, res)

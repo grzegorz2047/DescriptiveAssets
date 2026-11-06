@@ -156,7 +156,7 @@ _TODO_HINTS = (  # every match is listed, in this order: a sentence of the brief
     (r"reference|picture|photo|concept|sketch|drawing|refs/", "matches_reference: {min_iou: 0.85}"),
     (r"\b\d+\s*px\b|icon|thumbnail|far away|from afar|a distance|silhouette", "readable_at: {px: 32, keep: [p]}"),
     (r"\bparts?\b|budget|low[- ]?poly|simple|cheap", "max_parts: 30"),
-    (r"\b\d+(\.\d+)?\s*m\b|tall|high|wide|deep|height|width|depth|size", "size: {height: [lo, hi]} or part_size"),
+    (r"\b\d+(\.\d+)?\s*m\b|tall|high|wide|deep|long|span|height|width|depth|length|size", "SIZE"),
     (r"visible|\bsee|seen|spot|notice|fac(e|es|ing)\b|entrance|door", "visible: {part: p, view: front, min: 0.8}"),
     (r"symmetr|mirror|balanced", "symmetric: {axis: x, min: 0.9}"),
     (r"stable|stand|tip over|fall", "stable"),
@@ -180,6 +180,19 @@ def _reference_stub(brief: str, name: str) -> str:
             "#   height: 2.0                # TODO: real height in meters of the object in the picture, if known\n")
 
 
+_DIMENSIONS = (  # brief words -> the size dimension they measure
+    ("width", r"span|wide|width|across|broad"),
+    ("height", r"tall|high|height"),
+    ("depth", r"long|length|deep|depth"),
+)
+
+
+def _size_hint(sentence: str) -> str:
+    """size: with the dimensions the sentence names (a wingspan is a width, a fuselage length a depth)."""
+    dims = [d for d, pattern in _DIMENSIONS if re.search(pattern, sentence)] or ["height"]
+    return "size: {" + ", ".join(f"{d}: [lo, hi]" for d in dims) + "} or part_size"
+
+
 def _brief_todos(brief: str) -> str:
     sentences = [s.strip() for s in re.split(r"(?<=[.!?;])\s+", brief.strip()) if s.strip()]
     if not sentences:
@@ -187,7 +200,8 @@ def _brief_todos(brief: str) -> str:
                 "  #   - visible: {part: door, view: front, min: 0.8, why: \"the entrance must read\"}\n")
     lines = ["  # TODO: one check per wish in the brief (`why:` keeps the designer's words):"]
     for s in sentences:
-        hints = [h for pattern, h in _TODO_HINTS if re.search(pattern, s.lower())]
+        low = s.lower()
+        hints = [_size_hint(low) if h == "SIZE" else h for pattern, h in _TODO_HINTS if re.search(pattern, low)]
         quoted = s.replace('"', "'")
         lines.append(f'  #   "{quoted}"' + (f"  ->  {' | '.join(hints)}" if hints else ""))
     return "\n".join(lines) + "\n"
@@ -240,7 +254,8 @@ def cmd_render(args) -> int:
 
     asset = _load(args.asset, args)
     out = _out_dir(asset, args)
-    paths = write_renders(asset, out, _split_list(args.views), args.res, scale_figure=not args.no_human)
+    paths = write_renders(asset, out, _split_list(args.views), args.res, scale_figure=not args.no_human,
+                          ground=False if args.no_ground else None)
     print(f"RENDER  {asset.name}: {', '.join(k for k in paths if k not in ('parts', 'sheet'))} + parts + sheet")
     _wrote(paths.values())
     return EXIT_OK
@@ -640,6 +655,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--res", type=int, help="pixels on the long side of the largest view (default: the style's)")
     sp.add_argument("--out", help="output folder (default: <root>/out/<asset>)")
     sp.add_argument("--no-human", action="store_true", help="leave out the 1.8 m scale figure")
+    sp.add_argument("--no-ground", action="store_true",
+                    help="leave out the ground slab (views from below, orbit elevation < 0, never draw it)")
 
     sp = add("inspect", cmd_inspect, "print the measured report (sizes, contacts, visibility, silhouettes ...)")
     sp.add_argument("asset")

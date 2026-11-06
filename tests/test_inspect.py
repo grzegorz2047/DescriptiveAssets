@@ -513,7 +513,10 @@ def test_readability_loses_a_thin_spike():
     assert at32["parts_kept"] == ["body", "chimney"]
     assert at32["iou"] > 0.85
     assert read["at_px"][16]["iou"] <= at32["iou"] + 0.02
-    assert any(w.startswith("at 32 px (front) these parts vanish: spike") for w in r["warnings"])
+    assert any(w.startswith("at 32 px (front, iso) these parts vanish: spike") for w in r["warnings"])
+    # The report reads iso too, and a part lost from the front but kept in iso raises no warning.
+    assert r["readability_views"]["iso"]["at_px"][32]["parts_lost"] == ["spike"]
+    assert "  iso    32 px  IoU" in format_report(r)
     # Same machinery at another size and view.
     side = readability(a, "right", (64,))
     assert side["at_px"][64]["parts_lost"] == ["spike"] or "spike" in side["at_px"][64]["parts_kept"]
@@ -617,3 +620,40 @@ def test_tower30_report_and_timing(tower):
     legend = r["silhouette"]["front"]["legend"]
     assert legend["A"] == "shaft" and legend["B"] == "roof"  # by descending visible area
     assert part(r, "lantern")["visible"]["front"] > 0.9 and part(r, "lantern_back")["visible"]["front"] < 0.05
+
+
+def test_hidden_tag_and_iso_readability_quiet_expected_warnings():
+    """An interior part tagged `hidden` is expected out of sight; a plate edge-on from the front that reads
+    from iso is not 'vanishing'."""
+    a = load("""
+        parts:
+          - {name: body, shape: box, size: [2, 2, 2], material: stone, align: bottom}
+          - {name: core, shape: box, size: [0.5, 0.5, 0.5], material: iron, at: [0, 1, 0], tags: [hidden]}
+          - {name: wing, shape: box, size: [6, 0.02, 1.5], material: wood, on: body.top}
+        """, "quiet")
+    r = inspect_asset(a)
+    assert next(p for p in r["parts"] if p["name"] == "core")["visible"]["front"] == 0.0
+    assert not any("core" in w for w in r["warnings"])
+    assert "wing" in r["readability"]["at_px"][32]["parts_lost"]
+    assert "wing" in r["readability_views"]["iso"]["at_px"][32]["parts_kept"]
+    assert not any("vanish" in w for w in r["warnings"])
+    untagged = inspect_asset(load("""
+        parts:
+          - {name: body, shape: box, size: [2, 2, 2], material: stone, align: bottom}
+          - {name: core, shape: box, size: [0.5, 0.5, 0.5], material: iron, at: [0, 1, 0]}
+        """, "loud"))
+    assert any(w.startswith("core is under 30% visible") or w.startswith("core covers no pixel") for w in untagged["warnings"])
+
+
+def test_small_part_behind_a_thin_blade_is_measured_on_a_finer_grid():
+    """A 0.15 m box is 3 x 3 px at 128 px for a 6 m asset: eroded, one pixel is left, and a 5 cm blade in front
+    of its center made it read 0% visible. Small footprints are measured on a 4x finer grid."""
+    a = load("""
+        parts:
+          - {name: wall, shape: box, size: [6, 3, 0.2], material: stone, align: bottom}
+          - {name: lamp, shape: box, size: [0.15, 0.15, 0.1], material: gold, on: wall.front, align: back}
+          - {name: blade, shape: box, size: [0.05, 0.8, 0.02], material: wood, on: lamp.front, align: back,
+             offset: [0, 0, 0.05]}
+        """, "blade")
+    vis = visible_fractions(a, ["lamp"], ["front"], res=128)["lamp"]["front"]
+    assert vis == pytest.approx(1 - 0.05 / 0.15, abs=0.12)

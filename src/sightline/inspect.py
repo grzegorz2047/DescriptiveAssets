@@ -35,13 +35,17 @@ __all__ = [
 REPORT_VIEWS = ("front", "right", "top", "iso")
 HUMAN_HEIGHT = 1.8
 COLOR_VIEW = "iso"  # colors and contrast
-READ_VIEW = "front"  # readability
+READ_VIEW = "front"  # readability (the report's `readability`)
+READ_MORE_VIEWS = ("iso",)  # ... and these too (`readability_views`): thin parts can vanish only from the front
 READ_SIZES = (32, 16)
 READ_FULL_PX = 256  # long side of the full-resolution silhouette that readability downsamples
 KEEP_PX = 4  # a part survives a downscale if it owns at least this many pixels
 SIL_MAX = 32  # silhouette grid: at most this many columns and rows
 COMPARE_PX = 128
 LOW_VISIBLE = 0.30
+SMALL_FOOTPRINT_PX = 40  # visibility of parts covering fewer pixels is measured on a finer grid...
+FINE_STEPS = 4  # ... this many times finer
+HIDDEN_TAG = "hidden"  # parts tagged hidden are expected to be out of sight: no low-visibility warning
 SUPPORT_BAND = 0.02  # m: material this close above the ground (or below it) is a ground contact
 SUPPORT_STEP = 0.01  # m: finest xz step of the ground contact search
 LOW_CONTRAST = 1.5
@@ -586,10 +590,16 @@ def _solid_visibility(scene, solids, views, cams, bufs, rays) -> dict:
                 continue
             alone = _trace_parts(scene.only([i]), cam, rays[view], win) >= 0
             n_alone = int(np.count_nonzero(alone))
+            full = _crop(buf.part, win)
+            if 0 < n_alone < SMALL_FOOTPRINT_PX:
+                # A few pixels say little (eroded, a 3 x 3 part keeps one pixel that a propeller blade can
+                # cover): measure again on a grid FINE_STEPS times finer over the part's window.
+                fine = _fine_camera(cam, win, FINE_STEPS)
+                alone = _trace_parts(scene.only([i]), fine) >= 0
+                full = _trace_parts(scene, fine)
             core = _erode(alone)
             if not core.any():  # thinner than 3 px: the whole footprint
                 core = alone
-            full = _crop(buf.part, win)
             seen = core & (full == i)
             others = full[core & ~seen]
             others = others[others >= 0]
@@ -598,6 +608,13 @@ def _solid_visibility(scene, solids, views, cams, bufs, rays) -> dict:
             frac = np.count_nonzero(seen) / n_core if n_core else 0.0
             out[i][view] = (float(frac), n_alone, occluder)
     return out
+
+
+def _fine_camera(cam: Camera, win, k: int) -> Camera:
+    """A camera over the pixel window (r0, r1, c0, c1) of `cam` with k x k pixels per pixel of it."""
+    r0, r1, c0, c1 = win
+    center = cam.pixel_to_world((c0 + c1) / 2.0, (r0 + r1) / 2.0)
+    return fixed_camera(cam.view, center, cam.mpp / k, (c1 - c0) * k, (r1 - r0) * k, cam.near)
 
 
 def _cut_visibility(scene, c, targets, views, cams, bufs, rays, removed: float | None = None) -> dict:
@@ -1043,6 +1060,7 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
         silhouette[v] = sil
 
     read = _readability(scene, READ_VIEW, READ_SIZES)
+    read_more = {v: _readability(scene, v, READ_SIZES) for v in READ_MORE_VIEWS if v != READ_VIEW}
 
     compared = {}
     for other in compare:
@@ -1073,6 +1091,7 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
         "contrast": contrast,
         "silhouette": silhouette,
         "readability": read,
+        "readability_views": read_more,
         "compare": compared,
     }
     report["warnings"] = _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views)
@@ -1121,6 +1140,8 @@ def _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views) -
             out.append(f"cut {entry['name']} removes nothing — it does not intersect {targets}; move it into the part or fix from:")
     for i in solids:
         name = parts[i].name
+        if HIDDEN_TAG in parts[i].tags:  # the designer expects it hidden (an interior or underside part)
+            continue
         best_view = max(views, key=lambda v: (vis[i][v][0], -views.index(v)))
         frac, _, occluder = vis[i][best_view]
         if frac >= LOW_VISIBLE:
@@ -1142,7 +1163,7 @@ def _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views) -
         shown = {v: cut_vis[c][v][3] if inset[v] else cut_vis[c][v][0] for v in views}
         frac = max(shown.values())
         blocked = [v for v in views if cut_vis[c][v][3] >= LOW_VISIBLE and cut_vis[c][v][2] >= 0 and not inset[v]]
-        if frac < LOW_VISIBLE and blocked and removed[parts[c].name] > 0:
+        if frac < LOW_VISIBLE and blocked and removed[parts[c].name] > 0 and HIDDEN_TAG not in parts[c].tags:
             v = blocked[0]
             out.append(f"cut {parts[c].name} is under {round(LOW_VISIBLE * 100)}% visible in every view (in {v} "
                        f"{_pct(cut_vis[c][v][0])}, {_pct(cut_vis[c][v][3])} without other parts); hidden by "
@@ -1155,10 +1176,20 @@ def _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views) -
     if low:
         out.append(f"low contrast (< {LOW_CONTRAST}) between adjacent parts in the iso view: {', '.join(low)} — "
                    f"make one material of each pair lighter or darker")
-    read = report["readability"]
-    lost = _at_px(read["at_px"]).get(32, {}).get("parts_lost", [])
+    # Parts that vanish at 32 px in every readability view where they are seen at all (a wing seen edge-on
+    # from the front may still read from iso).
+    reads = [report["readability"], *report.get("readability_views", {}).values()]
+    lost_in, kept_in = {}, set()
+    for read in reads:
+        e = _at_px(read["at_px"]).get(32, {})
+        kept_in.update(e.get("parts_kept", []))
+        for name in e.get("parts_lost", []):
+            lost_in.setdefault(name, []).append(read["view"])
+    lost = [n for n in lost_in if n not in kept_in and HIDDEN_TAG not in parts[next(
+        i for i in solids if parts[i].name == n)].tags]
     if lost:
-        out.append(f"at 32 px ({read['view']}) these parts vanish: {', '.join(lost)} — make them larger or thicker "
+        where = ", ".join(r["view"] for r in reads)
+        out.append(f"at 32 px ({where}) these parts vanish: {', '.join(lost)} — make them larger or thicker "
                    f"if they matter at a distance")
     return out
 
@@ -1344,14 +1375,15 @@ def format_report(report: dict) -> str:
         out.append("")
         out += _silhouette_lines(view, sil)
 
-    read = r["readability"]
+    reads = [r["readability"], *r.get("readability_views", {}).values()]
     out.append("")
-    head("READABILITY", f"{read['view']}: silhouette at N px on the longer side, upscaled back, IoU vs full resolution; "
-         f"kept = covers >= {KEEP_PX} px")
-    for n, e in sorted(_at_px(read["at_px"]).items(), reverse=True):
-        out.append(f"  {n:>3} px  IoU {_pct(e['iou'])}")
-        out.append(f"          kept {len(e['parts_kept'])}: {', '.join(e['parts_kept']) or '-'}")
-        out.append(f"          lost {len(e['parts_lost'])}: {', '.join(e['parts_lost']) or '-'}")
+    head("READABILITY", f"{', '.join(x['view'] for x in reads)}: silhouette at N px on the longer side, upscaled back, "
+         f"IoU vs full resolution; kept = covers >= {KEEP_PX} px")
+    for read in reads:
+        for n, e in sorted(_at_px(read["at_px"]).items(), reverse=True):
+            out.append(f"  {read['view']:<6}{n:>3} px  IoU {_pct(e['iou'])}")
+            out.append(f"                kept {len(e['parts_kept'])}: {', '.join(e['parts_kept']) or '-'}")
+            out.append(f"                lost {len(e['parts_lost'])}: {', '.join(e['parts_lost']) or '-'}")
 
     head("COMPARE", "none" if not r["compare"] else "silhouette IoU, aligned at the ground and horizontal center; "
          "normalized = scaled to equal height")
@@ -1413,11 +1445,11 @@ def _facts(r: dict) -> dict[str, str]:
         f[f"colors.{mat}"] = _pct(share)
     for e in r["contrast"]:
         f[f"contrast.{e['a']}+{e['b']}"] = f"{e['ratio']:.2f}"
-    read = r["readability"]
-    for n, e in _at_px(read["at_px"]).items():
-        base = f"readability.{read['view']}.{n}px"
-        f[f"{base}.iou"] = _pct(e["iou"])
-        f[f"{base}.kept"], f[f"{base}.lost"] = ", ".join(e["parts_kept"]) or "-", ", ".join(e["parts_lost"]) or "-"
+    for read in (r["readability"], *r.get("readability_views", {}).values()):
+        for n, e in _at_px(read["at_px"]).items():
+            base = f"readability.{read['view']}.{n}px"
+            f[f"{base}.iou"] = _pct(e["iou"])
+            f[f"{base}.kept"], f[f"{base}.lost"] = ", ".join(e["parts_kept"]) or "-", ", ".join(e["parts_lost"]) or "-"
     for other, per_view in r["compare"].items():
         for view, e in per_view.items():
             f[f"compare.{other}.{view}.iou_true_scale"] = _pct(e["iou_true_scale"])

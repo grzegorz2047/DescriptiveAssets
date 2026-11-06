@@ -480,9 +480,9 @@ def _evaluate(ctx: _Context, e: CheckEntry) -> CheckResult:
         return _result(e, ratio >= a["min"] - 1e-9, f"{ratio:.2f} ({a['a']} {ca} vs {a['b']} {cb})", f">= {a['min']:.2f}",
                        "make one material lighter or darker", ratio=ratio)
     if kind == "readable_at":
-        read = r["readability"]
-        at = insp._at_px(read["at_px"])
-        if read["view"] == a["view"] and a["px"] in at:
+        read = r["readability"] if r["readability"]["view"] == a["view"] else r.get("readability_views", {}).get(a["view"])
+        at = insp._at_px(read["at_px"]) if read else {}
+        if a["px"] in at:
             res = at[a["px"]]
         else:
             res = insp._at_px(insp.readability(ctx.asset, a["view"], (a["px"],))["at_px"])[a["px"]]
