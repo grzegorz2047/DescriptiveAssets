@@ -16,7 +16,7 @@ lokalnie: „zrób dach bardziej stromy” to zmiana jednego pola `roof.height`.
 Wymagany Python 3.11+ i trzy biblioteki: numpy, pillow, pyyaml (bez GPU).
 
 ```
-git clone <repozytorium> sightline
+git clone https://github.com/grzegorz2047/DescriptiveAssets.git sightline
 cd sightline
 python -m venv .venv
 .venv\Scripts\pip install -e .[dev]          # Linux/macOS: .venv/bin/pip
@@ -175,11 +175,16 @@ angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt mi�
   tłem pełnym szczegółów wymagają wyciętej maski. Zgadywanie kąta (`--fit-view`) myli się przy
   obiektach okrągłych.
 - Eksport nie upraszcza siatek: małe, cienkie części dają dużo trójkątów (skrzynia ~400 tys. przy
-  domyślnym `--max-cells 128`, warto użyć 48). Pliki `.glb` sprawdzono walidatorem struktury, ale
-  nie otwierano ich jeszcze w Godot/Unity/Blenderze.
+  domyślnym `--max-cells 128`, warto użyć 48). Pliki `.glb` przechodzą walidator struktury
+  i otwierają się w Blenderze 5.2 (każda część to osobny obiekt o właściwych wymiarach); w Godot
+  i Unity jeszcze ich nie otwierano.
 - Poziomy to siatka kolumn terenu z jednym modelem ruchu gracza; obiekt blokuje całe komórki
   swojego obrysu, w których jego bryła schodzi niżej niż wzrost gracza plus skok (pod skrzydłami
   wiatraka da się przejść, a linia wzroku przechodzi pod nimi). Eksport poziomu do glTF nie jest
   jeszcze zrobiony.
 - Eksport siatek (surface nets) może zostawić kilka krawędzi wspólnych dla czterech trójkątów
   w wklęsłych narożnikach wycięć; `export` wypisuje je w linii `MANIFOLD`, ale ich nie naprawia.
+
+## Licencja
+
+MIT — zobacz plik `LICENSE`.
