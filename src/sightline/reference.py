@@ -60,6 +60,9 @@ KMEANS_K = 6
 KMEANS_ITERS = 8
 KMEANS_SAMPLE = 60000
 THIN_MIN_PX = 10  # thin-detail components smaller than this are edge noise
+LIGHTING = ("auto", "lit", "flat")
+LIT_SPREAD = 4.0  # lit: object pixels lie this far (median RGB distance, 0..255) from their colour cluster...
+LIT_SMOOTH = 0.2  # ... and this share of neighbouring interior pixels changes gently (shading, not flat paint)
 FIT_RES = 64
 FIT_AZIMUTHS = tuple(range(0, 360, 15))
 FIT_ELEVATIONS = (0, 15, 30, 45, 60)
@@ -577,6 +580,39 @@ def _thin_details(mask: np.ndarray, frame: _Frame) -> list[dict]:
     return out[:5]
 
 
+def _lighting(rgb: np.ndarray, mask: np.ndarray, given: str | None = None) -> dict:
+    """Is the picture lit (a shaded render or photo) or flat paint (concept art)?
+
+    Shading spreads every paint over a range of tones and changes them gently from pixel to pixel;
+    flat paint keeps a region one colour (JPEG noise moves it by a step or two). So a picture is lit
+    when the object's pixels lie on median >= LIT_SPREAD from their k-means colour and >= LIT_SMOOTH
+    of the neighbouring interior pixel pairs differ by 0.5..8 luminance steps. `given` ("lit"/"flat",
+    the reference's `lighting:` key) overrides the guess; the measurements are reported either way.
+    """
+    lum = rgb.astype(np.float64) @ np.array([0.2126, 0.7152, 0.0722])
+    inner = _erode(_erode(mask))
+    steps = [np.abs(lum[:, 1:] - lum[:, :-1])[inner[:, 1:] & inner[:, :-1]],
+             np.abs(lum[1:, :] - lum[:-1, :])[inner[1:, :] & inner[:-1, :]]]
+    d = np.concatenate(steps)
+    smooth = float(np.mean((d > 0.5) & (d <= 8.0))) if d.size else 0.0
+    pixels = rgb[mask]
+    step = max(1, math.ceil(len(pixels) / KMEANS_SAMPLE))
+    sample = pixels[::step].astype(np.float64)
+    centers = _kmeans(pixels)
+    dist = np.sqrt(((sample[:, None, :] - centers[None, :, :]) ** 2).sum(axis=-1)).min(axis=1)
+    spread = float(np.median(dist)) if dist.size else 0.0
+    obj = float(np.median(lum[mask]))
+    bg = float(np.median(lum[~mask])) if (~mask).any() else None
+    guess = "lit" if spread >= LIT_SPREAD and smooth >= LIT_SMOOTH else "flat"
+    mode = given if given in ("lit", "flat") else guess
+    evidence = (f"{smooth:.0%} of neighbouring pixels change gently, colours spread {spread:.1f} around their "
+                f"clusters" + (f"; the object (luminance {obj:.0f}) is darker than the background ({bg:.0f})"
+                               if bg is not None and obj < bg - 10 else ""))
+    return {"mode": mode, "source": "given" if given in ("lit", "flat") else "auto", "guess": guess,
+            "smooth": round(smooth, 3), "spread": round(spread, 1), "object_luminance": round(obj, 1),
+            "background_luminance": None if bg is None else round(bg, 1), "evidence": evidence}
+
+
 _HIDDEN = {
     "front": ("front", "depth (front to back)", "back and sides"),
     "back": ("back", "depth (front to back)", "front and sides"),
@@ -638,16 +674,30 @@ def _unknowns(rep: dict, view: str, model_height: float | None = None) -> list[d
                                 "Are they real parts (pole, rope, antenna), and do they matter at gameplay distance?",
                     "default": "skip them in the blockout; add thin parts (>= 0.05 m) later if they matter"})
     colors = rep["colors"][:4]
+    light = rep.get("lighting") or {"mode": "flat", "source": "auto", "evidence": ""}
     if colors:
         listing = ", ".join(f"{c['hex']} ({c['share']:.0%})" + (f" ~ {c['nearest_material']}" if c["nearest_material"] else "")
                             for c in colors)
-        out.append({"topic": "materials",
-                    "question": f"Which materials are the main colours: {listing}? Are the colours flat paint or lit (with shading)?",
-                    "default": "the nearest style materials listed; flat paint, so the picture colours are the base colours"})
+        if light["mode"] == "lit":
+            seen = "is lit" if light["source"] == "given" else f"looks lit ({light['evidence']})"
+            out.append({"topic": "materials",
+                        "question": f"The picture {seen}, so its main colours are shaded, not the paint: {listing}. "
+                                    "Which materials are they?",
+                        "default": "lit: choose each part's material by what it is and keep the picture's light-to-dark "
+                                   "order; the nearest materials listed match the shaded colours and are often too dark; "
+                                   "`sightline match` suggests base colours corrected for the picture's overall light"})
+        elif light["source"] == "given":
+            out.append({"topic": "materials", "question": f"Which materials are the main colours: {listing}?",
+                        "default": "the nearest style materials listed (flat paint: the picture colours are the base colours)"})
+        else:
+            out.append({"topic": "materials",
+                        "question": f"The picture looks like flat paint ({light['evidence']}). Which materials are the "
+                                    f"main colours: {listing}? Are they flat paint or lit (with shading)?",
+                        "default": "the nearest style materials listed; flat paint, so the picture colours are the base colours"})
     return out
 
 
-def _analyze(image_path, view: str = "front", height=None, mask=None, style=None, root=None) -> _Ref:
+def _analyze(image_path, view: str = "front", height=None, mask=None, style=None, root=None, lighting=None) -> _Ref:
     path = pathlib.Path(image_path)
     label = path.as_posix()
     if root is not None:
@@ -656,6 +706,9 @@ def _analyze(image_path, view: str = "front", height=None, mask=None, style=None
         except ValueError:
             pass
     view_basis(view)  # validates the view name (SightlineError with did_you_mean)
+    if lighting is not None and lighting not in LIGHTING:
+        raise SightlineError(f"lighting must be one of {', '.join(LIGHTING)}, got {lighting!r}", where=label,
+                             hint="lit = a shaded render or photo, flat = flat paint (concept art), auto = guess")
     if height is not None:
         if isinstance(height, bool) or not isinstance(height, (int, float)) or not math.isfinite(height) or height <= 0:
             raise SightlineError(f"height must be a number > 0 (meters), got {height!r}", where=label)
@@ -716,18 +769,20 @@ def _analyze(image_path, view: str = "front", height=None, mask=None, style=None
         "width_profile": profile,
         "colors": _colors(rgb, obj, (x0, y0, x1, y1), frame, style),
         "thin_details": _thin_details(obj, frame),
+        "lighting": _lighting(rgb, obj, lighting),
     }
     rep["unknowns"] = _unknowns(rep, view)
     return _Ref(path=path, label=label, rgb=rgb, alpha=alpha, mask=obj, bbox=(x0, y0, x1, y1), frame=frame, report=rep)
 
 
 def analyze_reference(image_path, view: str = "front", height: float | None = None, mask=None, *,
-                      style=None, root=None) -> dict:
+                      style=None, root=None, lighting: str | None = None) -> dict:
     """Measure a reference picture (SPEC 12.1): mask, scale, proportions, silhouette grid, width
     profile, dominant colours and the questions it cannot answer.
 
     `mask`: None/"auto" or a black/white PNG path. `style` (default: the default style) is used to
     name the nearest material of each colour; `root` only shortens the image path in the report.
+    `lighting`: "lit" or "flat" when known (the designer said so), else guessed from the shading.
     """
     if style is None:
         try:
@@ -736,7 +791,7 @@ def analyze_reference(image_path, view: str = "front", height: float | None = No
             style = load_style("default", root)
         except SightlineError:
             style = None
-    return _analyze(image_path, view, height, mask, style, root).report
+    return _analyze(image_path, view, height, mask, style, root, lighting).report
 
 
 # ----------------------------------------------------------------------------- text output
@@ -816,8 +871,16 @@ def format_reference(report: dict) -> str:
         yr = f"{_fmt(e['top'], unit)}..{_fmt(e['bottom'], unit)}"
         lines.append(f"  {e['band']:<9}{yr:>15}  {_fmt(e['left'], unit, True):>7} {_fmt(e['right'], unit, True):>7} "
                      f"{_fmt(e['width'], unit):>7}")
+    lg = r.get("lighting")
+    if lg:
+        how = "given" if lg["source"] == "given" else "guessed"
+        lines.append(f"LIGHTING   {lg['mode']} ({how}): {lg['evidence']}")
     lines.append("")
-    lines.append("COLORS  (k-means on the object's pixels; share of the object)")
+    if lg and lg["mode"] == "lit":
+        lines.append("COLORS  (k-means on the object's pixels; share of the object; lit picture: shaded colours, so the")
+        lines.append("        nearest materials match the shading, not the paint)")
+    else:
+        lines.append("COLORS  (k-means on the object's pixels; share of the object)")
     for c in r["colors"]:
         near = f"  ~ {c['nearest_material']} (dE {c['material_delta_e']:.0f})" if c["nearest_material"] else ""
         lines.append(f"  {c['hex']}  {_pct(c['share']):>4}  {c['where']:<34} center x {_fmt(c['center'][0], unit, True)}{u}, "
@@ -1027,7 +1090,8 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
     spec = _reference_spec(asset, index)
     view = view or spec.view
     mask = None if str(spec.mask) == "auto" else spec.mask
-    ref = _analyze(spec.image, view, spec.height, mask, asset.style, asset.root)
+    lighting = getattr(spec, "lighting", "auto")
+    ref = _analyze(spec.image, view, spec.height, mask, asset.style, asset.root, None if lighting == "auto" else lighting)
     scene = asset.scene()
     lo, hi = scene.bounds(include_helpers=False)
     cam = make_cameras([view], lo, hi, res=res)[view]
@@ -1312,7 +1376,8 @@ def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover
     regions.sort(key=lambda e: (e["thin"], -e["area"], e["kind"]))  # thin details last: fix the shapes first
 
     # Per-part colours: reference median vs flat Lambert render, over the part's interior pixels.
-    parts = []
+    lit = ref.report["lighting"]["mode"] == "lit"
+    parts, measured = [], []
     for i in sorted(visible, key=lambda i: (-part_px[i], i)):
         p = asset.parts[i]
         pix = part == i
@@ -1328,10 +1393,24 @@ def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover
         entry["rendered"] = _hex(rendered)
         if use is valid:
             refc = np.median(rgb[valid], axis=0)
-            suggested = np.where(rendered > 1e-3, base * refc / np.maximum(rendered, 1e-3), refc)
+            measured.append((entry, base, rendered, refc))
             entry.update(reference=_hex(refc), delta_e=round(delta_e(rendered, refc), 1),
-                         delta_e_base=round(delta_e(base, refc), 1), suggested=_hex(np.clip(suggested, 0.0, 1.0)))
+                         delta_e_base=round(delta_e(base, refc), 1))
         parts.append(entry)
+    # Suggested base colours. Flat paint: the picture's colour is the paint. Lit: base x reference / rendered,
+    # divided by the picture's overall light (per channel, the median of that ratio over the parts), so the
+    # picture's exposure, light colour and direction cancel out and only parts that differ from the rest
+    # change (a dim render made every cream wing "#f2ffff" before).
+    exposure = None
+    if lit and measured:
+        ratios = np.array([np.where(rd > 1e-3, rc / np.maximum(rd, 1e-3), 1.0) for _, _, rd, rc in measured])
+        exposure = np.maximum(np.median(ratios, axis=0), 1e-3)
+    for entry, base, rendered, refc in measured:
+        if exposure is None:
+            suggested = refc
+        else:
+            suggested = np.where(rendered > 1e-3, base * refc / np.maximum(rendered, 1e-3) / exposure, refc)
+        entry["suggested"] = _hex(np.clip(suggested, 0.0, 1.0))
 
     # Diff grid over both silhouettes.
     ux0, uy0b, ux1, uy1b = _bbox(R | M)
@@ -1378,6 +1457,8 @@ def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover
         "parts": parts,
         "grid": grid,
         "mask": {"source": ref_rep["mask"]["source"], "confidence": ref_rep["mask"]["confidence"]},
+        "lighting": {"mode": ref_rep["lighting"]["mode"], "source": ref_rep["lighting"]["source"],
+                     "exposure": None if exposure is None else [round(float(v), 3) for v in exposure]},
         "unknowns": unknowns,
         "images": {},
         "model_panel": None,
@@ -1462,13 +1543,24 @@ def format_match(report: dict) -> str:
                      f"{at}, next to `{e['near']}` -> {e['hint']}")
     lines.append("")
     lines.append("PARTS  (median colours over each part; rendered = base x flat Lambert from the style light)")
-    lines.append(f"  {'part':<14}{'material':<12}{'base':<9}{'rendered':<10}{'reference':<11}{'dE':>5}{'dE base':>9}  suggested base")
+    pw = max([len("part")] + [len(e["part"]) for e in r["parts"]]) + 2  # long part names keep their own column
+    mw = max([len("material")] + [len(str(e["material"])) for e in r["parts"]]) + 2
+    lines.append(f"  {'part':<{pw}}{'material':<{mw}}{'base':<9}{'rendered':<10}{'reference':<11}{'dE':>5}{'dE base':>9}"
+                 "  suggested base")
     for e in r["parts"]:
         de = f"{e['delta_e']:.1f}" if e["delta_e"] is not None else "-"
         deb = f"{e['delta_e_base']:.1f}" if e["delta_e_base"] is not None else "-"
-        lines.append(f"  {e['part']:<14}{str(e['material']):<12}{e['base']:<9}{e['rendered']:<10}{(e['reference'] or '-'):<11}"
-                     f"{de:>5}{deb:>9}  {e['suggested'] or '- (not in the reference)'}")
-    lines.append("  (lit picture: use `suggested`; flat-colour concept art: use the `reference` colour as the base)")
+        lines.append(f"  {e['part']:<{pw}}{str(e['material']):<{mw}}{e['base']:<9}{e['rendered']:<10}"
+                     f"{(e['reference'] or '-'):<11}{de:>5}{deb:>9}  {e['suggested'] or '- (not in the reference)'}")
+    lg = r.get("lighting") or {"mode": "flat", "source": "auto", "exposure": None}
+    how = "given" if lg["source"] == "given" else "guessed; set reference lighting: lit|flat if wrong"
+    if lg["mode"] == "lit":
+        ex = " ".join(f"{v:.2f}" for v in lg["exposure"]) if lg["exposure"] else "-"
+        lines.append(f"  (picture lit ({how}): suggested = base x reference / rendered / the picture's overall light "
+                     f"[{ex}],")
+        lines.append("   so only parts that differ from the rest change)")
+    else:
+        lines.append(f"  (picture flat paint ({how}): suggested = the reference colour)")
     lines.append("")
     lines += _format_unknowns(r["unknowns"])
     if r["images"]:

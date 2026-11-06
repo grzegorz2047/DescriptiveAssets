@@ -509,6 +509,30 @@ def test_reference_orbit_view_and_list():
     a = load_asset(FIX / "knight.yaml", ROOT)
     (ref,) = a.references
     assert ref.view == "orbit:30:15" and ref.mask == "auto" and ref.height is None
+    assert ref.lighting == "auto"
+
+
+def test_reference_resolves_under_root_assets_and_takes_lighting():
+    # An asset outside assets/ (a candidate in out/, a test fixture) names the picture as the library does.
+    a = load("""
+        parts:
+          - {name: a, shape: sphere, radius: 1, material: wood}
+        reference: {image: refs/lighthouse_concept.png, view: front, lighting: lit}
+    """)
+    (ref,) = a.references
+    assert ref.image == (ROOT / "assets" / "refs" / "lighthouse_concept.png").resolve() and ref.lighting == "lit"
+    e = error("""
+        parts:
+          - {name: a, shape: sphere, radius: 1, material: wood}
+        reference: {image: refs/lighthouse_concept.png, lighting: shaded}
+    """)
+    assert e.message == "lighting must be auto, lit or flat, got 'shaded'" and "flat paint" in e.hint
+    e = error("""
+        parts:
+          - {name: a, shape: sphere, radius: 1, material: wood}
+        reference: {image: refs/nope.png}
+    """)
+    assert "assets/refs/nope.png" in e.hint  # the third place it looked
 
 
 # ----------------------------------------------------------------------------- styles and roots

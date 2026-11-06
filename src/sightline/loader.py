@@ -35,7 +35,7 @@ TOP_KEYS = ("asset", "brief", "style", "tags", "parts", "reference", "checks")
 PART_KEYS = ("name", "shape", *PARAM_KEYS, "material", "at", "on", "align", "offset", "follow", "rotate",
              "repeat", "mirror", "mirror_name", "op", "from", "blend", "blend_with", "tags")
 REPEAT_KEYS = ("count", "step", "axis", "center")
-REFERENCE_KEYS = ("image", "view", "height", "mask")
+REFERENCE_KEYS = ("image", "view", "height", "mask", "lighting")
 MAX_PARTS = 256
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 AXES = {"x": 0, "y": 1, "z": 2}
@@ -456,9 +456,10 @@ def load_asset(path_or_name, root=None) -> Asset:
 
 
 def _resolve_file(value, asset_dir: pathlib.Path, root: pathlib.Path) -> pathlib.Path | list[pathlib.Path]:
-    """Existing path relative to the asset's directory, then root; else the list of tried paths."""
+    """Existing path relative to the asset's directory, then root, then root/assets (where `refs/` lives);
+    else the list of tried paths."""
     path = pathlib.Path(value)
-    candidates = [path] if path.is_absolute() else [asset_dir / path, root / path]
+    candidates = [path] if path.is_absolute() else [asset_dir / path, root / path, root / "assets" / path]
     for cand in candidates:
         if cand.is_file():
             return cand.resolve()
@@ -517,7 +518,12 @@ def _parse_references(ctx: _Ctx, value, asset_dir, root) -> list[ReferenceSpec]:
                 ctx.fail(f"mask image not found: {mask}", head, path + ("mask",),
                          "looked in: " + ", ".join(c.as_posix() for c in found_mask))
             mask = found_mask
-        refs.append(ReferenceSpec(image=found, view=view, height=None if height is None else float(height), mask=mask))
+        lighting = e.get("lighting", "auto")
+        if lighting not in ("auto", "lit", "flat"):
+            ctx.fail(f"lighting must be auto, lit or flat, got {lighting!r}", head, path + ("lighting",),
+                     "lit = a shaded render or photo, flat = flat paint (concept art), auto = guess from the shading")
+        refs.append(ReferenceSpec(image=found, view=view, height=None if height is None else float(height), mask=mask,
+                                  lighting=lighting))
     return refs
 
 

@@ -167,6 +167,7 @@ def test_analyze_concept_art(concept):
     assert m["source"] == "background" and m["background"] == "#e8e4da" and m["confidence"] == "high"
     assert m["components"] == 1 and m["bbox_px"] == list(BBOX)
     assert m["coverage"] == pytest.approx((ids > 0).sum() / (W * H), abs=1e-4)
+    assert r["lighting"]["mode"] == "flat" and r["lighting"]["source"] == "auto"
     p = r["proportions"]
     assert p["height_to_width"] == pytest.approx(260 / 120, abs=1e-3)
     assert p["symmetry_lr"] > 0.97 and p["fill"] == pytest.approx((ids > 0).sum() / (120 * 260), abs=1e-3)
@@ -346,7 +347,8 @@ BALCONY = """\
 """
 
 
-def tower(name, shaft_w=2, shaft_mat="wood", balcony=True, reference="reference: {image: blocky_front.png, view: front}"):
+def tower(name, shaft_w=2, shaft_mat="wood", balcony=True,
+          reference="reference: {image: blocky_front.png, view: front, lighting: lit}"):
     text = TOWER.format(name=name, shaft_w=shaft_w, shaft_mat=shaft_mat, balcony=BALCONY if balcony else "",
                         reference=reference)
     return load_asset_text(text, TMP / f"{name}.yaml", ROOT)
@@ -365,7 +367,8 @@ def render_reference(asset, view, res, name):
 
 @pytest.fixture(scope="module")
 def blocky():
-    """The full blocky tower rendered from the front at 320 px is the reference of every variant."""
+    """The full blocky tower rendered from the front at 320 px is the reference of every variant. Its faces are
+    flat-shaded (one tone per part), which looks like flat paint, so the variants say `lighting: lit`."""
     render_reference(tower("blocky_src", reference=""), "front", 320, "blocky_front.png")
     return tower("blocky_tower")
 
@@ -667,6 +670,55 @@ def test_thin_wire_regions_are_details_not_part_sizes():
         assert e["width"] == pytest.approx(0.04, abs=0.02)
     # The wires count with their real area at every res (they are under half a pixel wide at 128).
     assert match_asset(load_asset_text(body, TMP / "frame.yaml", ROOT), res=128)["missing"] == pytest.approx(r["missing"], abs=0.02)
+
+
+def shaded_picture(name):
+    """A 'render': one object whose tone changes smoothly across it, darker than the background (like the
+    biplane's front render, whose white wings measure #555a58 on a #767e86 background)."""
+    yy, xx = np.mgrid[0:300, 0:400]
+    img = np.full((300, 400, 3), 118.0)
+    obj = (np.abs(xx - 200) < 150) & (yy > 60) & (yy < 260)
+    tone = 30 + 140 * (xx - 50) / 300 + 25 * np.sin((yy - 60) / 200 * np.pi)
+    img[obj] = tone[obj, None] * np.array([0.96, 1.0, 1.04])
+    return save(Image.fromarray(np.clip(img, 0, 255).round().astype(np.uint8)), name)
+
+
+def test_lit_picture_is_detected_and_changes_the_materials_default():
+    path = shaded_picture("shaded.png")
+    r = analyze_reference(path, root=ROOT)
+    lg = r["lighting"]
+    assert lg["mode"] == "lit" and lg["guess"] == "lit" and lg["source"] == "auto"
+    assert lg["smooth"] >= 0.2 and lg["spread"] >= 4 and "darker than the background" in lg["evidence"]
+    q = next(u for u in r["unknowns"] if u["topic"] == "materials")
+    assert "shaded, not the paint" in q["question"] and q["question"].endswith("?")
+    assert q["default"].startswith("lit: choose each part's material by what it is")
+    assert "flat paint, so the picture colours are the base colours" not in q["default"]
+    text = format_reference(r)
+    assert "LIGHTING   lit (guessed)" in text and "nearest materials match the shading, not the paint" in text
+    # The designer's answer wins over the guess.
+    flat = analyze_reference(path, root=ROOT, lighting="flat")["lighting"]
+    assert flat["mode"] == "flat" and flat["source"] == "given" and flat["guess"] == "lit"
+    with pytest.raises(SightlineError):
+        analyze_reference(path, lighting="shaded")
+
+
+def test_match_suggestions_on_a_dim_lit_picture_keep_the_base_colours(blocky):
+    """A dim, blue-tinted render of the same model: base x reference / rendered suggested near-white or
+    near-black bases for every part; divided by the picture's overall light they keep the base colours."""
+    with Image.open(TMP / "blocky_front.png") as im:
+        arr = np.asarray(im.convert("RGB"), dtype=np.float64)
+    save(Image.fromarray(np.clip(arr * np.array([0.42, 0.45, 0.5]), 0, 255).round().astype(np.uint8)), "blocky_dim.png")
+    r = match_asset(tower("dim_tower", reference="reference: {image: blocky_dim.png, view: front, lighting: lit}"))
+    assert r["lighting"]["mode"] == "lit" and r["lighting"]["exposure"] == pytest.approx([0.42, 0.45, 0.5], abs=0.03)
+    for p in r["parts"]:
+        base = np.array(Image.new("RGB", (1, 1), p["base"]).getpixel((0, 0))) / 255
+        sugg = np.array(Image.new("RGB", (1, 1), p["suggested"]).getpixel((0, 0))) / 255
+        assert delta_e(base, sugg) < 3.0, p
+    assert "picture lit (given)" in format_match(r)
+    # Flat paint: the suggestion is the picture's colour itself.
+    flat = match_asset(tower("dim_flat", reference="reference: {image: blocky_dim.png, view: front, lighting: flat}"))
+    assert all(p["suggested"] == p["reference"] for p in flat["parts"] if p["reference"])
+    assert flat["lighting"] == {"mode": "flat", "source": "given", "exposure": None}
 
 
 # ----------------------------------------------------------------------------- view fitting

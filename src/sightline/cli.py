@@ -444,7 +444,8 @@ def cmd_ref(args) -> int:
 
     root = _root(args)
     image = _image_path(args.image, args)
-    report = analyze_reference(image, view=args.view, height=args.height, mask=args.mask, root=root)
+    report = analyze_reference(image, view=args.view, height=args.height, mask=args.mask, root=root,
+                               lighting=None if args.lighting == "auto" else args.lighting)
     if args.json:
         _json(report)
     else:
@@ -673,6 +674,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--view", default="front", help="view the picture shows (default front)")
     sp.add_argument("--height", type=float, help="real height in meters of the object in the picture")
     sp.add_argument("--mask", help="black/white mask PNG (default: automatic)")
+    sp.add_argument("--lighting", choices=("auto", "lit", "flat"), default="auto",
+                    help="lit = shaded render or photo, flat = flat paint (default: guessed from the shading)")
     sp.add_argument("--json", action="store_true")
 
     sp = add("match", cmd_match, "compare the model with its reference picture; writes match_<i>.png")

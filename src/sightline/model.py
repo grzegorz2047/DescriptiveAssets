@@ -664,6 +664,7 @@ class ReferenceSpec:
     view: str  # camera view name; {azimuth, elevation} -> camera.orbit_view(...)
     height: float | None
     mask: str | pathlib.Path  # "auto" or resolved path
+    lighting: str = "auto"  # "auto" | "lit" (shaded render, photo) | "flat" (flat paint)
 
 
 @dataclass(eq=False)
