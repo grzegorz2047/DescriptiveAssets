@@ -1,0 +1,63 @@
+asset: crate
+brief: >
+  A sturdy wooden supply crate, about 0.9 m on a side, that reads as a crate from across the
+  room: light boards inside a dark frame, with a diagonal brace on the front and the back.
+style: default
+tags: [prop, container]
+parts:
+  - name: body                       # the boards
+    shape: box
+    size: [0.86, 0.86, 0.86]
+    material: planks
+    align: bottom
+  - name: post                       # dark corner posts, one radial repeat -> post_0 .. post_3
+    shape: box
+    size: [0.1, 0.9, 0.1]
+    material: dark_wood
+    on: body.bottom_front_right
+    align: bottom
+    offset: [-0.03, 0, -0.03]
+    repeat: {count: 4, axis: y}
+  - name: rim_bottom                 # frame boards around the bottom and the top
+    shape: box
+    size: [0.9, 0.1, 0.9]
+    material: dark_wood
+    on: body.bottom
+    align: bottom
+  - name: rim_top
+    shape: box
+    size: [0.9, 0.1, 0.9]
+    material: dark_wood
+    on: body.top
+    align: top
+  - name: rim_hole                   # hollow the top rim into a frame so the lid boards show
+    shape: box
+    size: [0.8, 0.2, 0.8]
+    op: cut
+    on: rim_top.center
+  - name: brace_front                # diagonal board; the mirror adds brace_back
+    shape: box
+    size: [0.09, 0.98, 0.03]
+    material: dark_wood
+    on: body.front
+    align: back
+    rotate: [0, 0, 45]
+    mirror: z
+    mirror_name: brace_back
+  - name: lid_slat                   # boards on the lid, across x
+    shape: box
+    size: [0.72, 0.02, 0.14]
+    material: planks
+    on: body.top
+    align: bottom
+    offset: [0, 0, -0.24]
+    repeat: {count: 3, step: [0, 0, 0.24]}
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {width: [0.85, 0.95], height: [0.85, 0.98], depth: [0.85, 0.95]}
+  - symmetric: {axis: x, min: 0.9, why: "a crate is a regular box; lopsided reads as broken"}
+  - visible: {part: brace_front, view: front, min: 0.9, why: "the brace is what says 'crate'"}
+  - readable_at: {px: 32, min_iou: 0.85, keep: [body], why: "seen from across the room"}
+  - max_parts: 16

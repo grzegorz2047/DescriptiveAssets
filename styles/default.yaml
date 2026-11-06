@@ -1,0 +1,132 @@
+# Default Sightline style: a warm, readable "storybook" look for blockouts and game-ready assets.
+# Colors are '#rrggbb' or palette names. Patterns run in part-local coordinates, so they rotate
+# with the part. `scale` is in meters (bricks: [brick width, brick height]); `axis` is the direction
+# stripes/planks run along. Sizes are chosen to stay readable at 256 px for 2-10 m assets.
+style: default
+
+palette:
+  # woods
+  oak: "#9a6a3c"
+  oak_grain: "#7d5330"
+  walnut: "#5c3b24"
+  walnut_grain: "#462c1a"
+  pine: "#c08f57"
+  pine_seam: "#8f6538"
+  bark_brown: "#6b4a32"
+  bark_furrow: "#4e3423"
+  # stone and earth
+  granite: "#8e8b84"
+  granite_mortar: "#6c6a64"
+  brick_red: "#a4523a"
+  brick_mortar: "#d2c7b5"
+  plaster_cream: "#e8dcc4"
+  plaster_shade: "#d9cbb0"
+  dirt_brown: "#8a6a48"
+  dirt_dark: "#735637"
+  sand_gold: "#dcc58e"
+  sand_dark: "#c9b07a"
+  # roofs
+  tile_red: "#b4462f"
+  tile_shadow: "#8b3322"
+  slate_blue: "#4f5866"
+  slate_shadow: "#3c434e"
+  straw: "#d2ae62"
+  straw_shadow: "#a9863f"
+  # metals
+  steel: "#b6bbc2"
+  iron_dark: "#4b4f55"
+  gold_bright: "#e0b032"
+  bronze_warm: "#ad7a3c"
+  # fabrics and organics
+  crimson: "#b43a3a"
+  crimson_dark: "#972f2f"
+  royal_blue: "#2f5fa8"
+  royal_blue_dark: "#264f8d"
+  forest_green: "#3f7a3a"
+  forest_green_dark: "#33652f"
+  mustard: "#d0a23a"
+  leather_brown: "#7b4a2c"
+  leather_dark: "#663c23"
+  skin_tone: "#e2ae8a"
+  hair_brown: "#4a3020"
+  hair_dark: "#36231a"
+  leaf_green: "#55913b"
+  leaf_dark: "#41752d"
+  moss_green: "#6f8f3a"
+  grass_green: "#6aa042"
+  grass_dark: "#58893a"
+  bone_white: "#e9e0c9"
+  rope_tan: "#bb9b67"
+  rope_dark: "#9a7d4f"
+  # liquids and glass
+  water_blue: "#3f80c0"
+  glass_cyan: "#a9d6e8"
+  ice_blue: "#cfe8f2"
+  lava_orange: "#e8662a"
+  lava_dark: "#a83a1c"
+  snow_white: "#f4f6f8"
+  # paints and neutrals
+  white: "#f1efe9"
+  black: "#27272b"
+  signal_red: "#c23b30"
+  lamp_yellow: "#ffe08a"
+  helper_grey: "#9a9da3"
+
+materials:
+  # --- wood
+  wood:        {color: oak, pattern: planks, pattern_color: oak_grain, scale: 0.25, axis: y}
+  dark_wood:   {color: walnut, pattern: planks, pattern_color: walnut_grain, scale: 0.25, axis: y}
+  planks:      {color: pine, pattern: planks, pattern_color: pine_seam, scale: 0.3, axis: x}
+  bark:        {color: bark_brown, pattern: stripes, pattern_color: bark_furrow, scale: 0.12, axis: y}
+  # --- masonry
+  stone:       {color: granite, pattern: bricks, pattern_color: granite_mortar, scale: [0.6, 0.35]}
+  brick:       {color: brick_red, pattern: bricks, pattern_color: brick_mortar, scale: [0.4, 0.2]}
+  plaster:     {color: plaster_cream, pattern: noise, pattern_color: plaster_shade, scale: 0.3}
+  tiles:       {color: plaster_cream, pattern: checker, pattern_color: granite, scale: 0.5}
+  # --- roofs
+  roof:        {color: tile_red, pattern: stripes, pattern_color: tile_shadow, scale: 0.25, axis: x}
+  slate_roof:  {color: slate_blue, pattern: stripes, pattern_color: slate_shadow, scale: 0.2, axis: x}
+  thatch:      {color: straw, pattern: stripes, pattern_color: straw_shadow, scale: 0.1, axis: y}
+  # --- metals
+  metal:       {color: steel, shine: 0.6}
+  iron:        {color: iron_dark, shine: 0.4}
+  gold:        {color: gold_bright, shine: 0.8}
+  bronze:      {color: bronze_warm, shine: 0.5}
+  # --- cloth, leather, characters
+  cloth_red:   {color: crimson, pattern: noise, pattern_color: crimson_dark, scale: 0.08}
+  cloth_blue:  {color: royal_blue, pattern: noise, pattern_color: royal_blue_dark, scale: 0.08}
+  cloth_green: {color: forest_green, pattern: noise, pattern_color: forest_green_dark, scale: 0.08}
+  cloth_yellow: {color: mustard, pattern: noise, pattern_color: straw_shadow, scale: 0.08}
+  leather:     {color: leather_brown, pattern: noise, pattern_color: leather_dark, scale: 0.05}
+  skin:        {color: skin_tone, shine: 0.1}
+  hair:        {color: hair_brown, pattern: stripes, pattern_color: hair_dark, scale: 0.04, axis: y}
+  bone:        {color: bone_white, shine: 0.1}
+  rope:        {color: rope_tan, pattern: stripes, pattern_color: rope_dark, scale: 0.04, axis: y}
+  # --- nature and terrain
+  leaf:        {color: leaf_green, pattern: noise, pattern_color: leaf_dark, scale: 0.15}
+  moss:        {color: moss_green, pattern: noise, pattern_color: leaf_dark, scale: 0.1}
+  grass:       {color: grass_green, pattern: noise, pattern_color: grass_dark, scale: 0.2}
+  dirt:        {color: dirt_brown, pattern: noise, pattern_color: dirt_dark, scale: 0.15}
+  sand:        {color: sand_gold, pattern: noise, pattern_color: sand_dark, scale: 0.15}
+  snow:        {color: snow_white, shine: 0.2}
+  water:       {color: water_blue, shine: 0.7}
+  ice:         {color: ice_blue, shine: 0.8}
+  lava:        {color: lava_orange, pattern: noise, pattern_color: lava_dark, scale: 0.3}
+  glass:       {color: glass_cyan, shine: 0.9}
+  # --- paint
+  paint_white: {color: white, shine: 0.15}
+  paint_black: {color: black, shine: 0.15}
+  paint_red:   {color: signal_red, shine: 0.15}
+  # --- light sources (no emission in the renderer: a bright, warm, flat color)
+  lamp:        {color: lamp_yellow, shine: 0.3}
+  # --- engine helpers (scale figure); neutral so it never competes with the asset
+  helper:      {color: helper_grey}
+
+light:
+  direction: [0.45, -1.0, -0.6]   # travels from top-left-front toward bottom-right-back
+  ambient: 0.35
+  shadows: true
+outline: {width: 1, color: "#1b1b1b"}
+background: "#dde1e6"
+ground: {show: true, color: "#c8ccc2", grid: 1.0}
+render: {res: 256, views: [front, right, top, iso]}

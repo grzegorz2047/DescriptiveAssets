@@ -1,0 +1,179 @@
+asset: lighthouse
+brief: >
+  A red-and-white lighthouse on a rocky outcrop, built from the concept art in
+  refs/lighthouse_concept.png (about 11.9 m to the tip of the spike). Four painted bands, a dark
+  gallery with a railing, a glowing lantern room under a red dome. The door and the lantern must
+  face the sea (the front), and the model has to match the concept's silhouette.
+style: default
+tags: [building, landmark]
+parts:
+  # --- rock outcrop: a 7-sided frustum roughened by two blended boulders ---------------------------
+  - name: rock
+    shape: cone
+    radius: 2.72
+    top_radius: 1.75
+    height: 1.0
+    sides: 7
+    material: stone
+    align: bottom
+  - name: boulder_r
+    shape: ellipsoid
+    size: [1.5, 0.95, 1.6]
+    material: stone
+    at: [1.75, 0, 0.5]
+    align: bottom
+    blend: 0.2
+    blend_with: rock
+  - name: boulder_l
+    shape: ellipsoid
+    size: [1.3, 0.8, 1.4]
+    material: stone
+    at: [-1.9, 0, -0.4]
+    align: bottom
+    blend: 0.2
+    blend_with: rock
+  # --- tower: four 2 m bands tapering from r 1.5 to r 1.0 -------------------------------------------
+  - name: band_0
+    shape: cone
+    radius: 1.5
+    top_radius: 1.375
+    height: 2.0
+    material: paint_white
+    on: rock.top
+  - name: band_1
+    shape: cone
+    radius: 1.375
+    top_radius: 1.25
+    height: 2.0
+    material: paint_red
+    on: band_0.top
+  - name: band_2
+    shape: cone
+    radius: 1.25
+    top_radius: 1.125
+    height: 2.0
+    material: paint_white
+    on: band_1.top
+  - name: band_3
+    shape: cone
+    radius: 1.125
+    top_radius: 1.0
+    height: 2.0
+    material: paint_red
+    on: band_2.top
+  # --- door (box + round top) and two windows, all cuts ------------------------------------------------
+  - name: door
+    shape: box
+    size: [0.8, 1.05, 1.2]
+    op: cut
+    on: band_0@[0, -1, 1]
+    align: bottom
+    tags: [door]
+  - name: door_arch
+    shape: cylinder
+    radius: 0.4
+    height: 1.2
+    rotate: [90, 0, 0]
+    op: cut
+    from: [band_0]
+    on: door.top
+    align: center
+  - name: window_low
+    shape: box
+    size: [0.36, 0.65, 1.0]
+    op: cut
+    from: [band_1]
+    at: [0, 4.33, 1.3]
+  - name: window_high
+    shape: box
+    size: [0.36, 0.65, 1.0]
+    op: cut
+    from: [band_2]
+    at: [0, 6.63, 1.15]
+  # --- gallery and railing ---------------------------------------------------------------------------
+  - name: gallery
+    shape: cylinder
+    radius: 1.55
+    height: 0.25
+    material: paint_black
+    on: band_3.top
+  - name: rail_post                  # 12 posts -> rail_post_0 .. rail_post_11
+    shape: cylinder
+    radius: 0.035
+    height: 0.65
+    material: paint_black
+    on: gallery@[0, 1, 0.93]
+    align: bottom
+    repeat: {count: 12, axis: y}
+  - name: rail
+    shape: torus
+    radius: 1.45
+    thickness: 0.04
+    material: paint_black
+    on: gallery.top
+    align: center
+    offset: [0, 0.64, 0]
+  # --- lantern room and dome ------------------------------------------------------------------------
+  - name: lantern
+    shape: cylinder
+    radius: 0.8
+    height: 1.3
+    sides: 8
+    material: lamp
+    on: gallery.top
+    tags: [light]
+  - name: mullion                    # dark frame bars on the 8 corners -> mullion_0 .. mullion_7
+    shape: box
+    size: [0.05, 1.3, 0.05]
+    material: paint_black
+    at: [0.306, 9.9, 0.739]
+    repeat: {count: 8, axis: y}
+  - name: lantern_ring
+    shape: cylinder
+    radius: 0.9
+    height: 0.12
+    material: paint_black
+    on: lantern.top
+    align: center
+  - name: dome                       # half ellipsoid: the cut below removes its lower half
+    shape: ellipsoid
+    size: [1.9, 1.5, 1.9]
+    material: paint_red
+    on: lantern.top
+    align: center
+  - name: dome_cut
+    shape: box
+    size: [2.2, 0.8, 2.2]
+    op: cut
+    on: dome.center
+    align: top
+  - name: ball
+    shape: sphere
+    radius: 0.12
+    material: paint_black
+    on: dome.top
+    offset: [0, -0.04, 0]
+  - name: spike
+    shape: cone
+    radius: 0.04
+    height: 0.4
+    material: paint_black
+    on: ball.top
+    offset: [0, -0.02, 0]
+reference:
+  image: refs/lighthouse_concept.png
+  view: front
+  height: 11.85
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {height: [11.5, 12.2], why: "11.85 m in the concept"}
+  - matches_reference: {min_iou: 0.85, max_missing: 0.06, why: "the designer approved this silhouette"}
+  - visible: {part: door, view: front, min: 0.8, why: "the door faces the sea"}
+  - visible: {part: lantern, view: front, min: 0.3, why: "the light faces the sea; railing and mullions cover the rest"}
+  - contrast: {a: band_0, b: band_1, min: 2.0, why: "the bands must read from far away"}
+  - relation: {a: lantern, is: above, b: gallery}
+  - readable_at: {px: 32, min_iou: 0.8, keep: [lantern, dome]}
+  - symmetric: {axis: x, min: 0.85}
+  - max_parts: 60

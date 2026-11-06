@@ -1,0 +1,192 @@
+asset: knight
+brief: >
+  A stylized low-poly knight for a top-down RPG, about 2 m with the plume. Steel armour with a red
+  tabard and a red plume; a blue shield on the left arm and an upright sword in the right hand, in
+  a guard pose. The shield and the plume must read at icon size; the figure must stand on its own.
+style: default
+tags: [character]
+# Left/right follow the anchors: _l parts are on -X (the viewer's left in the front view).
+parts:
+  # --- legs ------------------------------------------------------------------------------------
+  - name: boot_l
+    shape: box
+    size: [0.2, 0.14, 0.3]
+    round: 0.03
+    material: leather
+    at: [-0.11, 0, 0.03]
+    align: bottom
+    mirror: x                        # -> boot_r
+  - name: leg_l
+    shape: box
+    size: [0.16, 0.62, 0.18]
+    material: iron
+    on: boot_l.top
+    offset: [0, -0.02, -0.03]
+    mirror: x                        # -> leg_r, attached to boot_r
+  # --- body ------------------------------------------------------------------------------------
+  - name: skirt                      # armoured skirt: 8-sided frustum
+    shape: cone
+    radius: 0.27
+    top_radius: 0.22
+    height: 0.26
+    sides: 8
+    material: metal
+    at: [0, 0.62, 0]
+    align: bottom
+  - name: torso
+    shape: box
+    size: [0.46, 0.5, 0.28]
+    round: 0.05
+    material: metal
+    on: skirt.top
+    blend: 0.05                      # smooth waist instead of a hard seam
+  - name: tabard
+    shape: box
+    size: [0.3, 0.5, 0.03]
+    material: cloth_red
+    on: torso.front
+    align: back
+  - name: emblem                     # gold bar on the tabard
+    shape: box
+    size: [0.06, 0.22, 0.02]
+    material: gold
+    on: tabard.front
+    align: back
+  - name: belt
+    shape: box
+    size: [0.5, 0.07, 0.33]
+    material: leather
+    on: torso.bottom
+    align: bottom
+    offset: [0, 0.02, 0]
+  # --- head ------------------------------------------------------------------------------------
+  - name: neck
+    shape: cylinder
+    radius: 0.07
+    height: 0.08
+    material: leather
+    on: torso.top
+    offset: [0, -0.02, 0]
+  - name: helmet                     # 8-sided pot helm with a domed top
+    shape: cylinder
+    radius: 0.16
+    height: 0.24
+    sides: 8
+    material: metal
+    on: neck.top
+    offset: [0, -0.02, 0]
+  - name: dome
+    shape: sphere
+    radius: 0.15
+    material: metal
+    on: helmet.top
+    align: center
+    blend: 0.03
+  - name: visor                      # eye slit cut into the helmet front
+    shape: box
+    size: [0.22, 0.035, 0.12]
+    op: cut
+    on: helmet@[0, 0.3, 1]
+    align: center
+  - name: plume
+    shape: ellipsoid
+    size: [0.08, 0.3, 0.34]
+    material: cloth_red
+    on: dome.top
+    offset: [0, -0.06, -0.04]
+  # --- arms (mirror) ----------------------------------------------------------------------------
+  - name: pauldron_l
+    shape: ellipsoid
+    size: [0.24, 0.16, 0.3]
+    material: metal
+    on: torso.top_left
+    align: center
+    offset: [0.02, -0.04, 0]
+    mirror: x
+  - name: arm_l                      # hangs from the shoulder, forearm forward into a guard pose
+    shape: capsule
+    radius: 0.07
+    height: 0.6
+    material: metal
+    on: pauldron_l.center
+    align: top
+    rotate: [-25, 0, -10]
+    mirror: x
+  - name: hand_l                     # follows the arm's rotation; its twin hand_r lands on arm_r
+    shape: sphere
+    radius: 0.075
+    material: leather
+    on: arm_l.bottom
+    align: center
+    mirror: x
+  # --- shield on the left hand -------------------------------------------------------------------
+  - name: shield
+    shape: box
+    size: [0.44, 0.3, 0.05]
+    round: 0.02
+    material: cloth_blue
+    on: hand_l.front
+    align: back
+    follow: false
+    offset: [0, 0.04, 0]
+  - name: shield_tip                 # triangular prism: rotate puts the point down
+    shape: cylinder
+    radius: 0.254
+    height: 0.05
+    sides: 3
+    rotate: [-90, 0, 0]
+    material: cloth_blue
+    on: shield.bottom
+    align: center
+    offset: [0, -0.127, 0]           # the flat edge (apothem 0.127) meets the shield bottom
+    blend: 0.02
+  - name: boss
+    shape: sphere
+    radius: 0.06
+    material: gold
+    on: shield.front
+    align: center
+  # --- sword in the right hand ---------------------------------------------------------------------
+  - name: grip
+    shape: cylinder
+    radius: 0.022
+    height: 0.18
+    material: leather
+    on: hand_r.center
+    align: center
+    follow: false                    # upright in the world, whatever the arm does
+  - name: pommel
+    shape: sphere
+    radius: 0.035
+    material: gold
+    on: grip.bottom
+  - name: guard
+    shape: box
+    size: [0.22, 0.04, 0.05]
+    material: gold
+    on: grip.top
+  - name: blade
+    shape: box
+    size: [0.07, 0.72, 0.02]
+    material: metal
+    on: guard.top
+    tags: [weapon]
+  - name: tip
+    shape: cone
+    radius: 0.05
+    height: 0.12
+    sides: 4
+    material: metal
+    on: blade.top
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {height: [1.9, 2.15], why: "about 2 m with the plume"}
+  - visible: {part: shield, view: front, min: 0.8, why: "only the boss may cover it"}
+  - visible: {part: tabard, view: front, min: 0.5}
+  - relation: {a: plume, is: above, b: helmet}
+  - relation: {a: shield, is: left_of, b: blade}
+  - contrast: {a: tabard, b: torso, min: 1.5, why: "the red tabard is the team color"}
+  - readable_at: {px: 32, min_iou: 0.75, keep: [shield, plume], why: "the shield and plume read at icon size"}
+  - max_parts: 40

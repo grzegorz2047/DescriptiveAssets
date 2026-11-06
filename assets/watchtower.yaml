@@ -1,0 +1,111 @@
+asset: watchtower
+brief: >
+  A wooden watchtower on a stone base, readable from far away. An open lookout deck with a
+  railing sits under a steep four-sided roof with a red pennant. The entrance must be visible from
+  the front. It stands in a 3 x 3 m courtyard plot, so the footprint has to stay under 3 m.
+style: default
+tags: [building, level_object]
+parts:
+  - name: base                       # stone foot, slightly rounded edges
+    shape: box
+    size: [2.6, 0.6, 2.6]
+    round: 0.04
+    material: stone
+    align: bottom
+  - name: shaft                      # 8-sided wooden tower; a flat face points to the front (+Z)
+    shape: cylinder
+    radius: 1.1
+    height: 4.2
+    sides: 8
+    material: wood
+    on: base.top
+  - name: door                       # cut 0.3 m into the front face, bottom on the base
+    shape: box
+    size: [0.6, 1.6, 0.8]
+    op: cut
+    on: shaft@[0, -1, 1]
+    align: bottom
+    tags: [door]
+  - name: lintel                     # stone lintel over the door
+    shape: box
+    size: [0.8, 0.18, 0.2]
+    material: stone
+    on: shaft@[0, -1, 1]
+    align: bottom
+    offset: [0, 1.6, -0.12]
+  - name: window                     # four slit windows, one radial repeat of a cut
+    shape: box
+    size: [0.28, 0.7, 1.0]
+    op: cut
+    from: [shaft]
+    at: [0, 3.7, 1.0]
+    repeat: {count: 4, axis: y}
+  - name: band                       # iron band around the shaft
+    shape: cylinder
+    radius: 1.15
+    height: 0.12
+    sides: 8
+    material: iron
+    on: shaft@[0, 0.05, 0]
+    align: center
+  - name: deck                       # lookout floor, wider than the shaft
+    shape: box
+    size: [2.7, 0.2, 2.7]
+    material: dark_wood
+    on: shaft.top
+  - name: post                       # corner posts carrying the roof -> post_0 .. post_3
+    shape: box
+    size: [0.14, 1.3, 0.14]
+    material: dark_wood
+    on: deck.top_front_right
+    align: bottom_front_right
+    repeat: {count: 4, axis: y}
+  - name: rail_front                 # railing boards; mirrors add rail_back / rail_right
+    shape: box
+    size: [2.6, 0.1, 0.06]
+    material: dark_wood
+    on: deck@[0, 1, 0.97]
+    align: bottom
+    offset: [0, 0.55, 0]
+    mirror: z
+    mirror_name: rail_back
+  - name: rail_left
+    shape: box
+    size: [0.06, 0.1, 2.6]
+    material: dark_wood
+    on: deck@[-0.97, 1, 0]
+    align: bottom
+    offset: [0, 0.55, 0]
+    mirror: x
+  - name: roof                       # four-sided pyramid resting on the posts
+    shape: cone
+    radius: 2.05
+    height: 1.7
+    sides: 4
+    material: roof
+    on: deck.top
+    offset: [0, 1.3, 0]
+  - name: pole                       # pennant pole on the apex
+    shape: cylinder
+    radius: 0.035
+    height: 0.9
+    material: iron
+    on: roof.top
+    offset: [0, -0.1, 0]
+  - name: pennant
+    shape: wedge
+    size: [0.04, 0.32, 0.6]
+    rotate: [0, 90, 0]
+    material: cloth_red
+    on: pole@[1, 0.85, 0]
+    align: top_back
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {height: [8, 9.5], width: [2.6, 2.95], depth: [2.6, 2.95], why: "fits a 3 x 3 m plot"}
+  - visible: {part: door, view: front, min: 0.8, why: "the player must see the entrance"}
+  - readable_at: {px: 32, min_iou: 0.8, keep: [roof, shaft], why: "readable from far away"}
+  - relation: {a: roof, is: above, b: deck}
+  - symmetric: {axis: x, min: 0.9}
+  - max_parts: 30

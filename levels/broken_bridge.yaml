@@ -1,0 +1,52 @@
+level: broken_bridge
+brief: >
+  Two cliffs joined by a stone bridge with a two-cell break that must be jumped. A secret sits on
+  an island pillar north of the bridge. The blue door was meant to guard the goal. This level is
+  deliberately broken: the ravine under the bridge is a softlock, the secret is out of jump range
+  and the blue door can be walked around, so several checks FAIL.
+style: default
+cell: 1.0
+height_unit: 0.5
+player: {step: 0.5, jump_up: 1.0, jump_gap: 2, max_drop: 3.0, height: 1.8}
+# cliffs at 2 m (4 steps), ravine floor at 0, pits are void
+heights: |
+  4 4 4 0 0 0 0 0 0 0 0 4 4 4
+  4 4 4 0 0 0 4 4 0 0 0 4 4 4
+  4 4 4 0 0 0 0 0 0 0 0 4 4 4
+  4 4 4 0 0 0 0 0 0 0 0 4 4 4
+  4 4 4 4 4 4 0 0 4 4 4 4 4 4
+  4 4 4 0 0 0 0 0 0 0 0 8 4 4
+  4 4 4 0 0 0 0 0 0 0 0 4 4 4
+  4 4 4 0 0 0 0 0 0 0 0 4 4 4
+  4 4 4 0 0 0 0 0 0 0 0 4 4 4
+tiles: |
+  . . . _ _ _ _ _ _ _ _ . . .
+  . k . _ _ _ . . _ _ _ . . .
+  . . . _ _ _ _ _ _ _ _ . . .
+  . . . _ _ _ _ _ _ _ _ . . .
+  . . . . . . _ _ . . . . . .
+  . . . _ _ _ _ _ _ _ _ # D .
+  . . . . . . . . . . . . . .
+  . . . . . . . . . . . . . .
+  . . . . . . . . . . . . . .
+markers:
+  spawn: [1, 4]
+  key_blue: [1, 1]
+  secret: [6, 1]
+  goal: [12, 7]
+doors:
+  door_blue: {at: [12, 5], key: key_blue}
+objects:                       # kept off the ravine edge at (2,6), the designed way into the softlock
+  - {asset: pine_tree, at: [12, 1], rotate: 20, solid: true}
+  - {asset: crate, at: [0, 2], solid: true}
+  - {asset: crate, at: [0, 6], rotate: 30, solid: true}
+  - {asset: barrel, at: [1, 8], solid: true}
+  - {asset: barrel, at: [13, 8], solid: true}
+checks:
+  - reachable: goal
+  - reachable: {to: secret, why: "the island secret should reward a running jump"}
+  - no_softlocks
+  - order: [key_blue, door_blue, goal]
+  - visible: {from: spawn, to: goal, why: "the goal is the landmark across the chasm"}
+  - jumps: {min: 1, max: 3}
+  - max_fall: 3.0

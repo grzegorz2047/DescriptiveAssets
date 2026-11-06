@@ -1,0 +1,172 @@
+asset: tower30
+brief: >
+  A stone-and-wood watchtower with a crenellated top, banners and a few props.
+  Test fixture: uses every shape and every placement, expansion and op feature.
+style: default
+tags: [building, fixture]
+parts:
+  - name: base                      # box + round, at/align
+    shape: box
+    size: [4, 0.6, 4]
+    round: 0.05
+    material: stone
+    align: bottom
+  - name: plinth                    # octagonal prism, default align (opposite of top = bottom)
+    shape: cylinder
+    radius: 1.6
+    height: 0.4
+    sides: 8
+    material: stone
+    on: base.top
+  - name: shaft                     # rounded octagonal prism
+    shape: cylinder
+    radius: 1.3
+    height: 5
+    sides: 8
+    round: 0.05
+    material: wood
+    on: plinth.top
+    tags: [walls]
+  - name: door                      # cut on a normalized anchor, from = the on target
+    shape: box
+    size: [0.9, 1.8, 1.0]
+    op: cut
+    on: shaft@[0, -1, 1]
+    align: bottom
+    tags: [door]
+  - name: window                    # radial repeat of a cut -> window_0 .. window_3
+    shape: box
+    size: [0.4, 0.7, 1.0]
+    op: cut
+    from: [shaft]
+    at: [0, 4.2, 1.2]
+    repeat: {count: 4, axis: y}
+  - name: band                      # torus around the shaft
+    shape: torus
+    radius: 1.25
+    thickness: 0.06
+    material: iron
+    on: shaft@[0, -0.3, 0]
+  - name: crenel                    # radial repeat around a part anchor -> crenel_0 .. crenel_7
+    shape: box
+    size: [0.3, 0.4, 0.3]
+    material: stone
+    on: shaft.top_front
+    align: bottom
+    offset: [0, 0, -0.25]
+    repeat: {count: 8, axis: y, center: shaft.top}
+  - name: roof                      # octagonal pyramid resting on the crenels
+    shape: cone
+    radius: 1.8
+    height: 2.2
+    sides: 8
+    material: roof
+    on: shaft.top
+    offset: [0, 0.4, 0]
+  - name: finial                    # sphere blended into the roof apex
+    shape: sphere
+    radius: 0.15
+    material: gold
+    on: roof.top
+    blend: 0.05
+  - name: cap                       # frustum under the finial
+    shape: cone
+    radius: 0.25
+    top_radius: 0.1
+    height: 0.2
+    material: metal
+    on: roof.top
+    align: center
+  - name: ramp                      # wedge: full height at the back, slope to the front
+    shape: wedge
+    size: [1.2, 0.6, 1.0]
+    material: planks
+    on: base@[0, 1, 1]
+    align: top_back
+  - name: banner_l                  # mirror x -> banner_r
+    shape: box
+    size: [0.05, 1.2, 0.6]
+    material: cloth_red
+    on: shaft@[-1, -0.1, 0]
+    align: right
+    offset: [0.1, 0, 0]
+    mirror: x
+  - name: torch_left                # rotated capsule, mirror x -> torch_right
+    shape: capsule
+    radius: 0.06
+    height: 0.7
+    material: dark_wood
+    on: base.top_front
+    align: bottom
+    offset: [-0.9, 0, -0.2]
+    rotate: [0, 0, 10]
+    mirror: x
+  - name: lantern                   # mirror z with an explicit twin name
+    shape: sphere
+    radius: 0.12
+    material: glass
+    on: band@[0.7, 0, 0.7]
+    mirror: z
+    mirror_name: lantern_back
+  - name: barrel                    # round cylinder with rounded edges
+    shape: cylinder
+    radius: 0.35
+    height: 0.9
+    round: 0.04
+    material: dark_wood
+    at: [2.6, 0, -1.0]
+    align: bottom
+    tags: [prop]
+  - name: hoop                      # torus following the barrel
+    shape: torus
+    radius: 0.34
+    thickness: 0.03
+    material: iron
+    on: barrel@[0, 0.5, 0]
+    align: center
+  - name: bush                      # ellipsoids joined by a smooth blend (one group)
+    shape: ellipsoid
+    size: [1.0, 0.8, 0.9]
+    material: leaf
+    at: [-2.7, 0, 0.8]
+    align: bottom
+  - name: bush_top
+    shape: ellipsoid
+    size: [0.7, 0.6, 0.6]
+    material: leaf
+    on: bush.top
+    offset: [0.1, -0.25, 0]
+    blend: 0.15
+  - name: post                      # linear repeat -> post_0 .. post_2
+    shape: box
+    size: [0.12, 0.8, 0.12]
+    material: wood
+    at: [1.0, 0, 2.6]
+    align: bottom
+    repeat: {count: 3, step: [0.4, 0, 0]}
+    tags: [fence]
+  - name: rail                      # centered on the middle post, world-frame offset
+    shape: box
+    size: [1.0, 0.08, 0.08]
+    material: wood
+    on: post_1.center
+    follow: false
+    offset: [0, 0.2, 0]
+    tags: [fence]
+  - name: drain                     # cut through every earlier solid it touches
+    shape: cylinder
+    radius: 0.2
+    height: 1.0
+    rotate: [90, 0, 0]
+    op: cut
+    from: all
+    at: [0, 0.3, -2]
+reference:
+  image: refs/tower_front.png
+  view: front
+  height: 8.4
+checks:
+  - grounded
+  - connected
+  - size: {height: [7, 10]}
+  - visible: {part: door, view: front, min: 0.8, why: "the entrance must read from the front"}

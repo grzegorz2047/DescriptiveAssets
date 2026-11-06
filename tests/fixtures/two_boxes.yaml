@@ -1,0 +1,5 @@
+asset: two_boxes
+brief: Two boxes side by side with a gap, different materials.
+parts:
+  - {name: left_box, shape: box, size: [1, 1, 1], material: stone, at: [-1, 0, 0], align: bottom}
+  - {name: right_box, shape: box, size: [1, 2, 1], material: wood, at: [1, 0, 0], align: bottom}

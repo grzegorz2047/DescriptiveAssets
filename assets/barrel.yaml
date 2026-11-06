@@ -1,0 +1,80 @@
+asset: barrel
+brief: >
+  An oak barrel for taverns and docks, a little under 1 m tall. It must bulge in the middle like a
+  real barrel, with four steel hoops and a dark lid; it should stand steady and look the same from
+  every side.
+style: default
+tags: [prop, container]
+parts:
+  - name: lower                      # two 14-sided frustums meet at the belly
+    shape: cone
+    radius: 0.3
+    top_radius: 0.36
+    height: 0.46
+    sides: 14
+    material: wood
+    align: bottom
+  - name: upper
+    shape: cone
+    radius: 0.36
+    top_radius: 0.3
+    height: 0.46
+    sides: 14
+    material: wood
+    on: lower.top
+    blend: 0.04                      # soften the crease at the belly
+  - name: hoop_low                   # steel hoops sit on the staves: ring radius = body radius there
+    shape: torus
+    radius: 0.31
+    thickness: 0.022
+    material: metal
+    on: lower@[0, -0.75, 0]
+    align: center
+  - name: hoop_mid
+    shape: torus
+    radius: 0.335
+    thickness: 0.022
+    material: metal
+    on: lower.center
+    align: center
+  - name: hoop_mid_top
+    shape: torus
+    radius: 0.335
+    thickness: 0.022
+    material: metal
+    on: upper.center
+    align: center
+  - name: hoop_high
+    shape: torus
+    radius: 0.31
+    thickness: 0.022
+    material: metal
+    on: upper@[0, 0.75, 0]
+    align: center
+  - name: lid                        # dark head boards, set a little into the top
+    shape: cylinder
+    radius: 0.27
+    height: 0.03
+    sides: 14
+    material: dark_wood
+    on: upper.top
+    align: center
+  - name: bung                       # the tap hole plug on the belly, facing front
+    shape: cylinder
+    radius: 0.04
+    height: 0.06
+    material: dark_wood
+    rotate: [90, 0, 0]
+    on: upper@[0, -0.85, 1]
+    align: center
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {height: [0.85, 0.98], width: [0.68, 0.8]}
+  - ratio: {a: upper.width, b: lid.width, range: [1.2, 1.5], why: "the belly must bulge out"}
+  - symmetric: {axis: x, min: 0.95, why: "the same from every side"}
+  - symmetric: {axis: z, min: 0.85, why: "only the bung on the front breaks it"}
+  - visible: {part: hoop_mid, view: front, min: 0.5}
+  - contrast: {a: hoop_high, b: upper, min: 1.3, why: "the steel hoops must read against the wood"}
+  - max_parts: 12

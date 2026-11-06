@@ -1,0 +1,4 @@
+asset: box1
+brief: A single 2 x 1 x 1 m box standing on the ground.
+parts:
+  - {name: block, shape: box, size: [2, 1, 1], material: stone, align: bottom}

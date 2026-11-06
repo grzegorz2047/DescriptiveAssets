@@ -1,0 +1,59 @@
+level: courtyard
+brief: >
+  A walled courtyard. The player starts in the south-west, jumps a two-cell canal, climbs a ladder
+  to a raised platform for the red key, drops down and opens the red door of the inner court,
+  where the goal waits out of sight. A watchtower stands in the north-west corner, a
+  pine in the far corner, a knight stands guard by a street lamp, and crates and a barrel fill
+  the corners.
+style: default
+cell: 1.0
+height_unit: 0.5
+player: {step: 0.5, jump_up: 1.0, jump_gap: 2, max_drop: 3.0, height: 1.8}
+# rows = z (row 0 = north/back), columns = x (col 0 = west); outer walls are low (1 m) so the iso view sees in
+heights: |
+  2  2  2  2  2  2  2  2  2  2  2  2  2  2  2  2
+  2  0  0 -1 -1  0  0  0  0  0  0  0  3  3  3  2
+  2  0  0 -1 -1  0  0  0  0  0  0  0  3  3  3  2
+  2  0  0 -1 -1  0  0  0  0  0  0  0  3  3  3  2
+  2  0  0 -1 -1  0  0  0  0  0  0  0  0  0  0  2
+  2  0  0 -1 -1  0  0  0  0  0  0  0  0  0  0  2
+  2  0  0 -1 -1  0  0  0  0  0  0  6  6  0  6  2
+  2  0  0 -1 -1  0  0  0  0  0  0  6  0  0  0  2
+  2  0  0 -1 -1  0  0  0  0  0  0  6  0  0  0  2
+  2  0  0 -1 -1  0  0  0  0  0  0  6  0  0  0  2
+  2  2  2  2  2  2  2  2  2  2  2  2  2  2  2  2
+tiles: |
+  # # # # # # # # # # # # # # # #
+  # . . ~ ~ . . . . . . . . . . #
+  # . . ~ ~ . . . . . . = . k . #
+  # . . ~ ~ . . . . . . . . . . #
+  # . . ~ ~ . . . . . . . . . . #
+  # . . ~ ~ . . . . . . . . . . #
+  # . . ~ ~ . . . . . . # # D # #
+  # . . ~ ~ . . . . . . # . . . #
+  # . . ~ ~ . . . ^ ^ . # . . . #
+  # . . ~ ~ . . . . . . # . . . #
+  # # # # # # # # # # # # # # # #
+markers:
+  spawn: [1, 9]
+  key_red: [13, 2]
+  goal: [13, 8]
+doors:
+  door_red: {at: [13, 6], key: key_red}
+objects:
+  - {asset: watchtower, at: [6, 2], rotate: 0, solid: true}
+  - {asset: pine_tree, at: [1, 1], solid: true}
+  - {asset: knight, at: [8, 1], solid: true}         # a guard by the tower, under the lamp
+  - {asset: street_lamp, at: [9, 1], solid: true}
+  - {asset: crate, at: [6, 8], solid: true}
+  - {asset: crate, at: [7, 8], rotate: 15, solid: true}
+  - {asset: barrel, at: [14, 9], solid: true}
+checks:
+  - reachable: goal
+  - order: [key_red, door_red, goal]
+  - no_softlocks
+  - visible: {from: spawn, to: key_red, why: "the key on the platform is the first landmark the player sees"}
+  - not_visible: {from: spawn, to: goal, why: "the inner court is a reveal"}
+  - path_length: {max: 60}
+  - jumps: {min: 1, max: 5}
+  - max_fall: 3.0

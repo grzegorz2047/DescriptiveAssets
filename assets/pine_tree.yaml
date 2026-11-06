@@ -1,0 +1,59 @@
+asset: pine_tree
+brief: >
+  A stylized low-poly pine for forests and level edges, about 5 m tall: a short brown trunk and
+  three stacked green tiers that get smaller toward a pointed top. Trees are seen in hundreds, so
+  keep it under 10 parts and make the silhouette read as a pine even as a 16 px icon.
+style: default
+tags: [nature, level_object]
+parts:
+  - name: trunk
+    shape: cylinder
+    radius: 0.2
+    height: 1.4
+    sides: 7
+    material: bark
+    align: bottom
+  - name: roots                      # a low flare so the trunk does not look stuck in the ground
+    shape: cone
+    radius: 0.34
+    top_radius: 0.2
+    height: 0.25
+    sides: 7
+    material: bark
+    align: bottom
+  - name: tier_low                   # three 9-sided cones, each starting inside the one below
+    shape: cone
+    radius: 1.35
+    height: 2.2
+    sides: 9
+    material: leaf
+    on: trunk.top
+    offset: [0, -0.5, 0]
+  - name: tier_mid
+    shape: cone
+    radius: 1.05
+    height: 2.0
+    sides: 9
+    material: leaf
+    on: tier_low.top
+    offset: [0, -1.0, 0]
+  - name: tier_top
+    shape: cone
+    radius: 0.75
+    height: 1.8
+    sides: 9
+    material: leaf
+    on: tier_mid.top
+    offset: [0, -1.0, 0]
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {height: [4.5, 5.5], why: "about 5 m"}
+  - ratio: {a: total.height, b: total.width, range: [1.6, 2.4], why: "slim like a pine, not a bush"}
+  - relation: {a: tier_top, is: above, b: tier_low}
+  - visible: {part: trunk, view: front, min: 0.3, why: "a visible trunk says 'tree'"}
+  - readable_at: {px: 16, min_iou: 0.7, keep: [tier_low, tier_top]}
+  - symmetric: {axis: x, min: 0.9}
+  - max_parts: 10
+  - distinct_from: {assets: [watchtower], view: front, max_iou: 0.7, why: "a pine must not read as a spire"}
