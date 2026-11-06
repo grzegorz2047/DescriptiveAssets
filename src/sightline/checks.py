@@ -51,7 +51,7 @@ CHECK_KINDS: dict[str, tuple[str, ...]] = {
     "distinct_from": ("assets", "view", "max_iou"),
     "max_parts": (),
     "max_materials": (),
-    "matches_reference": ("index", "min_iou", "max_missing"),
+    "matches_reference": ("index", "min_iou", "max_missing", "res"),
 }
 SCALAR_KINDS = ("max_parts", "max_materials")  # take a number, not a mapping
 BARE_KINDS = ("grounded", "connected", "stable", "symmetric", "readable_at", "matches_reference")
@@ -246,6 +246,9 @@ def _validate(asset: Asset, kind: str, raw, where: str) -> dict:
         a["index"] = _integer(raw.get("index", 0), where, "index", 0)
         a["min_iou"] = _number(raw.get("min_iou", 0.85), where, "min_iou", 0.0, 1.0)
         a["max_missing"] = _number(raw.get("max_missing", 0.05), where, "max_missing", 0.0, 1.0)
+        a["res"] = _integer(raw.get("res", 256), where, "res", 16)
+        if a["res"] > 4096:
+            _fail(f"res must be at most 4096, got {a['res']}", where, "res is the model render's long side in px (default 256)")
         if not asset.references:
             _fail("matches_reference needs a reference image, but the asset has no reference:", where,
                   "add reference: {image: refs/<name>.png, view: front, height: <m>} to the asset, or drop this check")
@@ -517,7 +520,7 @@ def _evaluate(ctx: _Context, e: CheckEntry) -> CheckResult:
         except ImportError as exc:
             raise SightlineError(f"reference matching is not available ({exc})", where=e.where,
                                  hint="sightline.reference.match_asset is required for matches_reference") from None
-        m = match_asset(ctx.asset, index=a["index"])
+        m = match_asset(ctx.asset, index=a["index"], res=a["res"])
         iou, missing = float(m["iou"]), float(m["missing"])
         problems = []
         if iou < a["min_iou"] - 1e-9:
@@ -525,7 +528,8 @@ def _evaluate(ctx: _Context, e: CheckEntry) -> CheckResult:
         if missing > a["max_missing"] + 1e-9:
             problems.append(f"{_pct(missing)} of the reference is not covered")
         msg = "; ".join(problems) + ("; run sightline match and fix the largest regions first" if problems else "")
-        return _result(e, not problems, f"IoU {iou:.2f}, missing {_pct(missing)} (reference {a['index']})",
+        at = f", res {a['res']}" if a["res"] != 256 else ""
+        return _result(e, not problems, f"IoU {iou:.2f}, missing {_pct(missing)} (reference {a['index']}{at})",
                        f"IoU >= {a['min_iou']:.2f}, missing <= {_pct(a['max_missing'])}", msg, iou=iou, missing=missing)
     raise AssertionError(kind)  # unreachable: kinds are validated
 
