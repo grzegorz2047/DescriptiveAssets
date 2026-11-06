@@ -460,6 +460,63 @@ def cmd_ref(args) -> int:
     return EXIT_OK
 
 
+
+IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+
+
+def _strip_arrays(rep: dict) -> dict:
+    return {k: v for k, v in rep.items() if not k.startswith("_")}
+
+
+def cmd_structure(args) -> int:
+    from . import structure as st
+
+    target = args.target
+    if pathlib.Path(target).suffix.lower() in IMAGE_SUFFIXES:
+        root = _root(args)
+        image = _image_path(target, args)
+        rep = st.analyze_structure(image, view=args.view, height=args.height, mask=args.mask, root=root)
+        out = pathlib.Path(args.out) if args.out else root / "out" / "structure" / f"{pathlib.Path(target).stem}.png"
+        path = st.write_structure_png(rep, out if out.suffix else out / f"{pathlib.Path(target).stem}.png")
+        if args.json:
+            _json(_strip_arrays(rep))
+        else:
+            print(st.format_structure(rep))
+        _wrote([path])
+        return EXIT_OK
+    asset = _load(target, args)
+    rep = st.compare_structure(asset, args.index, res=args.res)
+    path = st.write_compare_png(rep, _out_dir(asset, args) / f"structure_{args.index}.png")
+    if args.json:
+        _json(_strip_arrays(rep))
+    else:
+        print(st.format_compare(rep))
+    _wrote([path])
+    return EXIT_OK
+
+
+def cmd_import(args) -> int:
+    from .importer import format_import, import_glb
+    from .style import load_style
+
+    root = _root(args)
+    src = pathlib.Path(args.file)
+    if src.suffix.lower() != ".glb":
+        raise SightlineError(f"cannot import {src.name}", hint="give a glTF binary (.glb); convert .gltf/.fbx/.obj in Blender first")
+    if not src.is_file():
+        raise SightlineError(f"file not found: {src.as_posix()}", hint="give the path of a .glb file")
+    style = load_style("default", root)
+    result = import_glb(src, args.name, style=style, split=not args.no_split, max_parts=args.max_parts)
+    out = pathlib.Path(args.out) if args.out else root / "assets" / f"{result['name']}.yaml"
+    if out.exists() and not args.force:
+        raise SightlineError(f"{_show(out)} already exists", hint="pass --force to overwrite it, or --name / --out")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(result["yaml"], encoding="utf-8", newline="\n")
+    print(format_import(result))
+    print(f"next: render it and compare it with a picture of the original, e.g.  sightline render {result['name']}")
+    _wrote([out])
+    return EXIT_OK
+
 def cmd_match(args) -> int:
     from .reference import fit_view, format_fit, format_match, match_asset
 
@@ -694,6 +751,25 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--res", type=int, default=256, help="render size (default 256)")
     sp.add_argument("--out", help="output folder (default: <root>/out/<asset>)")
     sp.add_argument("--json", action="store_true")
+
+    sp = add("structure", cmd_structure, "divisions inside a picture (edges, regions, relief guess); with an asset: "
+                                         "how its parts and materials line up with them")
+    sp.add_argument("target", help="an asset (compares with its reference picture) or an image file (analyses it alone)")
+    sp.add_argument("--index", type=int, default=0, help="which reference: entry (default 0)")
+    sp.add_argument("--res", type=int, default=512, help="render size for the comparison (default 512)")
+    sp.add_argument("--view", default="front", help="image only: the view it shows (default front)")
+    sp.add_argument("--height", type=float, help="image only: real height in meters (sizes in m instead of %%)")
+    sp.add_argument("--mask", help="image only: black/white mask PNG (default: automatic)")
+    sp.add_argument("--out", help="output folder or PNG path")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("import", cmd_import, "import a ready model (.glb) as a descriptive asset: one fitted primitive per mesh piece")
+    sp.add_argument("file", help="path of a .glb file")
+    sp.add_argument("--name", help="asset name (default: the file name)")
+    sp.add_argument("--out", help="YAML path (default: <root>/assets/<name>.yaml)")
+    sp.add_argument("--max-parts", type=int, default=120, help="keep at most this many pieces, largest first (default 120)")
+    sp.add_argument("--no-split", action="store_true", help="one part per mesh primitive (do not split it into connected pieces)")
+    sp.add_argument("--force", action="store_true", help="overwrite an existing file")
 
     sp = add("level", cmd_level, "levels: render (iso + top PNG), play (bot report + checks), check")
     sp.add_argument("action", choices=("render", "play", "check"))

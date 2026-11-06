@@ -132,6 +132,18 @@ liczby z liczbami.
 4. Po poprawkach check `matches_reference` przechodzi (latarnia morska z przykładów: IoU 0.95).
    Uwagi przekazujesz po nazwach części: „`dome` wyżej”, „`band_3` węższy”.
 
+5. Gdy sylwetka się zgadza, `sightline structure lighthouse` sprawdza **wnętrze**: gdzie na obrazku
+   jest ciemna rama, a gdzie jasne płyty i światła, oraz które części modelu obrazek dzieli na kilka
+   elementów. Raport mówi wprost, co zmienić: „obrazek jest tu ciemny, model jasny: `chest`
+   (metal); daj tu ciemną część” albo „brakuje światła w x −0,05..−0,02, y 1,77..1,79”.
+   `sightline structure refs/obrazek.png --height 1.9` rozkłada sam obrazek na listę elementów
+   (płyty, rama, światła) z wymiarami w metrach i parami lewa–prawa.
+
+**Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
+każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
+najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z
+`match` i `structure`.
+
 ## Eksport do silnika gry
 
 ```
@@ -199,6 +211,10 @@ angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt mi�
 - Eksport siatek (surface nets) może zostawić kilka krawędzi wspólnych dla czterech trójkątów
   w wklęsłych narożnikach wycięć; `export` wypisuje je w linii `MANIFOLD`, ale ich nie naprawia
   (upraszczanie ich nie pogarsza).
+- Analiza struktury obrazka zna trzy klasy (ciemne, jasne, akcent): dobrze działa na projektach
+  mechanicznych (płyty, rama, światła), słabiej na kolorowych strojach (czerwień, złoto, skóra).
+  Import `.glb` dopasowuje jedną bryłę do każdego kawałka siatki, więc duże, jednolite siatki (np.
+  całe nadwozie) wychodzą jako jeden prostopadłościan.
 
 ## Licencja
 

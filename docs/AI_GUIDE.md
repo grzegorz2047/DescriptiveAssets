@@ -102,7 +102,29 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
 5. **Repeat** until `matches_reference` passes, then add the designer's other wishes as checks,
    show `sheet.png` + `match_0.png`, and take feedback.
 
+6. **`sightline structure <asset>`** once the outline fits. A high IoU only says the outline is
+   right; the designer looks at the inside too. The report lists picture regions where the model's
+   material class differs (`picture is dark here, the model bright: chest (metal); use a dark part`),
+   lights the model lacks, and `SPLITS`: parts the picture divides into several plates. Work through
+   FINDINGS largest first, split the parts SPLITS names, and watch `CLASSES` and `DIVISIONS` rise.
+   Use `sightline structure refs/picture.png --height M` before building: its region list (ids,
+   sizes and positions in meters, left/right pairs, a relief guess, every light) is the parts list
+   of the concept. `assets/robot.yaml` was rebuilt this way: classes 61% -> 69%, disagreeing regions
+   25 -> 8, at the same IoU.
+   - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
+     into `refs/` (save as RGBA PNG), or the background turns black.
+   - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and
+     ignore the colour suggestions for lit pictures.
+
 `assets/lighthouse.yaml` with `assets/refs/lighthouse_concept.png` is a worked example (IoU 0.95).
+
+### Starting from a ready model
+
+`sightline import model.glb` turns a mesh into a descriptive asset (one fitted primitive per mesh
+piece, `WORST FITS` first). Render a picture of the original (any renderer; `tools/blender_truth.py`
+does it headless in Blender, with an ID map), add it as the asset's reference and refine with
+`match` and `structure` like any concept. `tools/structure_bench.py` scores the structure analysis
+against models whose parts and depth are known; use it before changing the algorithm.
 
 ## 3. Asking questions
 

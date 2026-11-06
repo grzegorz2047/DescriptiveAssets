@@ -1,0 +1,768 @@
+asset: orc_paladin
+brief: >
+  An armoured orc paladin in a T-pose, built from the designer's front concept
+  (refs/orc_paladin_front.png). 2.1 m tall to the top of the head, arm span about 2.6 m.
+  Silver steel plate with gold trim and sun emblems, a long red cape from the shoulders to
+  mid-calf at the back, a cream tabard with a gold sun hanging from a leather belt, a pouch on
+  one hip. Olive skin, tusks, pointed ears, black beard and two long braids. Game-ready low-
+  poly: about 80-100 named parts, no engravings; the T-pose keeps it ready for rigging.
+style: default
+tags: [character, game_asset, rig_ready]
+# Meters; +Y up, +X right, +Z = the front (the face looks at the front-view camera).
+# _l parts are on -X = the viewer's left in the front view = the CHARACTER'S RIGHT side.
+#
+# Rig layout: every part is attached with `on:` to the body segment (bone) it rides on, so moving or
+# rotating a segment carries its armour. Segment roots, top-down:
+#   pelvis -> abdomen (spine) -> torso (chest) -> gorget -> neck -> head -> braid_root_* -> braid_*
+#   torso  -> upper_arm_* -> forearm_* -> hand_* -> fingers_* (+ thumb_*)   (arms along -X / +X, y 1.66)
+#   pelvis -> thigh_* -> shin_* (+ knee_*) -> foot_* -> toe_*, sole_*        (legs straight, x = +-0.245)
+#   pelvis -> tasset_* -> tasset_lower_*;  belt -> tabard, pouch;  torso -> pauldron_*, cape
+#   pauldron_* -> pauldron_rim_*;  pauldron_lower_* -> pauldron_lower_rim_*  (gold edges follow their plate)
+# The cape is one cloth mesh (cape) with two gold trim meshes (cape_hem, cape_border); the hidden
+# pelvis and neck parts are kept as filler meshes for their bones (no gaps when the rig bends).
+# The arm parts are rotated 90 deg about z, so in their own frame +Y points out along the arm
+# (toward the fingertips): offsets on arm children read [up, out, front].
+# Built from candidate C with grafts: the 4-bar chest sun and the 64 px head check (from A), the
+# sloped cape top, the tabard laurels and the mid-calf / T-pose / tusk checks (from B). Budget: 100
+# solid parts (the cuts are free); the pouch clasp was dropped to pay for the laurels.
+# Exported glb (default quality): 97 nodes (blend groups merge 3 pairs), about 11.1k triangles;
+# only the cape keeps 4 non-manifold edges where its side and front cuts meet.
+parts:
+  # --- pelvis, spine, chest ------------------------------------------------------------------------
+  - name: pelvis                     # root bone: hips under the faulds, belt and tabard
+    shape: box
+    size: [0.44, 0.30, 0.30]
+    round: 0.05
+    material: metal
+    at: [0, 1.13, 0]
+  - name: abdomen                    # spine: plated faulds between the breastplate and the belt
+    shape: box
+    size: [0.48, 0.16, 0.31]
+    round: 0.04
+    material: metal
+    on: pelvis.center
+    align: center
+    offset: [0, 0.25, 0]
+  - name: torso                      # chest: breastplate and plain back plate (under the cape), well rounded
+    shape: box
+    size: [0.54, 0.42, 0.34]
+    round: 0.10
+    material: metal
+    on: abdomen.center
+    align: center
+    offset: [0, 0.25, 0]
+  - name: belt                       # wide leather belt, y 1.27..1.36
+    shape: box
+    size: [0.53, 0.09, 0.35]
+    round: 0.03
+    material: leather
+    on: pelvis.center
+    align: center
+    offset: [0, 0.185, 0]
+  - name: buckle                     # round gold sun buckle (octagon, 3 cm proud)
+    shape: cylinder
+    radius: 0.07
+    height: 0.045
+    sides: 8
+    material: gold
+    on: belt.center
+    align: center
+    offset: [0, 0, 0.185]
+    rotate: [90, 0, 22.5]
+  - name: pouch                      # leather pouch on the viewer's left hip (the only asymmetric part)
+    shape: box
+    size: [0.12, 0.15, 0.07]
+    round: 0.015
+    material: leather
+    on: belt.center
+    align: center
+    offset: [-0.27, -0.105, 0.17]
+  # --- chest emblems and trim ----------------------------------------------------------------------
+  - name: chest_sun                  # big gold sun on the breastplate: a disc over four crossed bars = 8 rays
+    shape: cylinder
+    radius: 0.05
+    height: 0.05
+    material: gold
+    on: torso.center
+    align: center
+    offset: [0, 0.015, 0.19]
+    rotate: [90, 0, 0]
+  - name: chest_ray_v                # long vertical ray (up and down)
+    shape: box
+    size: [0.026, 0.30, 0.04]
+    material: gold
+    on: torso.center
+    align: center
+    offset: [0, 0.015, 0.175]
+  - name: chest_ray_h                # long horizontal ray (left and right)
+    shape: box
+    size: [0.026, 0.30, 0.04]
+    material: gold
+    on: torso.center
+    align: center
+    offset: [0, 0.015, 0.175]
+    rotate: [0, 0, 90]
+  - name: chest_ray_d1               # short diagonal rays
+    shape: box
+    size: [0.024, 0.22, 0.04]
+    material: gold
+    on: torso.center
+    align: center
+    offset: [0, 0.015, 0.175]
+    rotate: [0, 0, 45]
+  - name: chest_ray_d2
+    shape: box
+    size: [0.024, 0.22, 0.04]
+    material: gold
+    on: torso.center
+    align: center
+    offset: [0, 0.015, 0.175]
+    rotate: [0, 0, -45]
+  - name: breast_trim_l              # gold V along the lower edge of the breastplate
+    shape: box
+    size: [0.29, 0.035, 0.04]
+    material: gold
+    on: torso.center
+    align: center
+    offset: [-0.135, -0.145, 0.17]
+    rotate: [0, 0, -14.5]
+    mirror: x
+  - name: pauldron_medallion_l       # round gold medallions where the pauldron straps meet the chest
+    shape: cylinder
+    radius: 0.048
+    height: 0.045
+    material: gold
+    on: torso.center
+    align: center
+    offset: [-0.224, 0.095, 0.185]
+    rotate: [90, 0, 0]
+    mirror: x
+  # --- legs (thigh -> shin -> foot -> sole), straight down from the pelvis ----------------------------
+  - name: thigh_l                    # cuisse, y 0.64..1.00
+    shape: cone
+    radius: 0.10
+    top_radius: 0.12
+    height: 0.36
+    sides: 12
+    material: metal
+    on: pelvis.bottom
+    align: top
+    offset: [-0.245, 0.02, 0]
+    mirror: x
+  - name: shin_l                     # greave, y 0.15..0.66
+    shape: cone
+    radius: 0.085
+    top_radius: 0.115
+    height: 0.51
+    sides: 12
+    material: metal
+    on: thigh_l.bottom
+    align: top
+    offset: [0, 0.02, 0]
+    mirror: x
+  - name: knee_l                     # big knee cop (octagonal plate) in front of the knee
+    shape: cylinder
+    radius: 0.125
+    height: 0.07
+    sides: 8
+    material: metal
+    on: shin_l.top
+    align: center
+    offset: [0, 0.03, 0.105]
+    rotate: [90, 0, 0]
+    mirror: x
+  - name: knee_sun_l                 # gold sun medallion on the knee cop (follows the cop: local +Y = front)
+    shape: cylinder
+    radius: 0.05
+    height: 0.03
+    sides: 8
+    material: gold
+    on: knee_l.top
+    align: center
+    offset: [0, 0.01, 0]
+    rotate: [0, 22.5, 0]
+    mirror: x
+  - name: greave_trim_l              # gold ring at the ankle
+    shape: cylinder
+    radius: 0.105
+    height: 0.03
+    sides: 12
+    material: gold
+    on: shin_l.bottom
+    align: center
+    offset: [0, 0.09, 0]
+    mirror: x
+  - name: foot_l                     # heavy sabaton
+    shape: box
+    size: [0.215, 0.14, 0.36]
+    round: 0.045
+    material: metal
+    on: shin_l.bottom
+    align: top
+    offset: [-0.01, 0.025, 0.05]
+    mirror: x
+  - name: toe_l                      # layered toe cap of the sabaton
+    shape: box
+    size: [0.225, 0.10, 0.14]
+    round: 0.045
+    material: metal
+    on: foot_l.bottom_front
+    align: bottom_front
+    offset: [0, 0, 0.005]
+    mirror: x
+  - name: sole_l                     # dark sole, exactly on the ground
+    shape: box
+    size: [0.245, 0.04, 0.37]
+    round: 0.012
+    material: leather
+    on: foot_l.bottom
+    align: top
+    offset: [0, 0.005, 0]
+    mirror: x
+  # --- tassets over the hips -------------------------------------------------------------------------
+  - name: tasset_l                   # upper hip plate, flaring outward
+    shape: box
+    size: [0.21, 0.19, 0.30]
+    round: 0.03
+    material: metal
+    on: pelvis.center
+    align: center
+    offset: [-0.225, 0.035, 0.01]
+    rotate: [0, 0, -10]
+    mirror: x
+  - name: tasset_lower_l             # lower hip plate (follows the upper one)
+    shape: box
+    size: [0.22, 0.20, 0.30]
+    round: 0.03
+    material: metal
+    on: tasset_l.center
+    align: center
+    offset: [0, -0.16, 0.01]
+    rotate: [0, 0, -3]
+    mirror: x
+  - name: tasset_trim_l              # gold edge of the lower plate
+    shape: box
+    size: [0.23, 0.04, 0.32]
+    material: gold
+    on: tasset_lower_l.bottom
+    align: center
+    offset: [0, 0.01, 0]
+    mirror: x
+  # --- tabard hanging from the belt -------------------------------------------------------------------
+  - name: tabard_lining              # red cloth behind the tabard: its edges are the red side strips
+    shape: box
+    size: [0.27, 0.62, 0.02]
+    material: cloth_red
+    on: belt.center
+    align: center
+    offset: [0, -0.355, 0.148]
+  - name: tabard                     # cream linen, y 0.576..1.28; the point reaches 0.47
+    shape: box
+    size: [0.21, 0.704, 0.025]
+    material: canvas
+    on: belt.center
+    align: center
+    offset: [0, -0.387, 0.165]
+  - name: tabard_tip                 # pointed bottom (a diamond blended into the tabard: one mesh)
+    shape: box
+    size: [0.15, 0.15, 0.025]
+    material: canvas
+    on: tabard.bottom
+    align: center
+    offset: [0, 0, -0.004]
+    rotate: [0, 0, 45]
+    blend: 0.01
+  - name: tabard_fringe              # gold fringe along the pointed edge
+    shape: box
+    size: [0.155, 0.155, 0.02]
+    material: gold
+    on: tabard.bottom
+    align: center
+    offset: [0, -0.04, -0.006]
+    rotate: [0, 0, 45]
+  - name: tabard_sun
+    shape: cylinder
+    radius: 0.035
+    height: 0.04
+    sides: 8
+    material: gold
+    on: tabard.center
+    align: center
+    offset: [0, -0.088, 0.025]
+    rotate: [90, 0, 22.5]
+  - name: tabard_sun_rays
+    shape: box
+    size: [0.11, 0.11, 0.03]
+    material: gold
+    on: tabard.center
+    align: center
+    offset: [0, -0.088, 0.02]
+    rotate: [0, 0, 45]
+  - name: tabard_laurel_l            # two crossed gold laurel branches under the tabard sun
+    shape: box
+    size: [0.03, 0.19, 0.03]
+    material: gold
+    on: tabard.center
+    align: center
+    offset: [-0.025, -0.268, 0.025]
+    rotate: [0, 0, 22.5]
+    mirror: x
+  # --- cape: a shallow 16-sided frustum shell behind the body, trimmed to the picture's outline -----
+  #     outer radius 0.8 (hem, y 0.33) .. 0.7 (top, y 1.885), axis 0.49 m in front of the body, so the
+  #     shell hangs 0.2 m behind the back plate at the top and 0.3 m at the hem and wraps to the legs'
+  #     plane at its sides. The slanted side cuts follow the picture's outline (x = +-0.42 at y 1.54,
+  #     +-0.63 at y 0.35); small corner cuts round the hem up at the outer corners as pictured.
+  - name: cape
+    shape: cone
+    radius: 0.8
+    top_radius: 0.7
+    height: 1.555
+    sides: 16
+    material: cloth_red
+    on: torso.center
+    align: center
+    offset: [0, -0.5225, 0.49]
+  - name: cape_hollow                # 4 cm thick shell (same slope, 5 cm longer at both ends)
+    shape: cone
+    radius: 0.7632
+    top_radius: 0.6568
+    height: 1.655
+    sides: 16
+    op: cut
+    on: cape.center
+    align: center
+  - name: cape_hem                   # gold hem band y 0.32..0.38, 1.3 cm proud on both faces
+    shape: cone
+    radius: 0.8127
+    top_radius: 0.8087
+    height: 0.06
+    sides: 16
+    material: gold
+    on: cape.center
+    align: center
+    offset: [0, -0.7575, 0]
+  - name: cape_hem_hollow
+    shape: cylinder
+    radius: 0.745
+    height: 0.12
+    sides: 16
+    op: cut
+    on: cape_hem.center
+    align: center
+  - name: cape_border                # gold laurel borders on the lining: one shell 2.5 cm proud of the
+    shape: cone                      # cape's inner face, y 0.39..1.40, trimmed below to two bands
+    radius: 0.7661                   # at |x| 0.41..0.48 (narrowing at the top where the edge slants in)
+    top_radius: 0.7012
+    height: 1.01
+    sides: 16
+    material: gold
+    on: cape.center
+    align: center
+    offset: [0, -0.2125, 0]
+  - name: cape_border_hollow
+    shape: cone
+    radius: 0.7343
+    top_radius: 0.6630
+    height: 1.11
+    sides: 16
+    op: cut
+    on: cape_border.center
+    align: center
+  - name: cape_border_mid            # keeps the border off the back center: |x| < 0.41 removed
+    shape: box
+    size: [0.82, 1.4, 2.0]
+    op: cut
+    on: cape_border.center
+    align: center
+  - name: cape_border_out_l          # ... and outside |x| = 0.48
+    shape: box
+    size: [0.6, 1.4, 2.0]
+    op: cut
+    on: cape_border.center
+    align: center
+    offset: [-0.78, 0, 0]
+    mirror: x
+  - name: cape_front                 # removes the front of the frustum (everything with z > 0.15)
+    shape: box
+    size: [2.0, 2.2, 1.4]
+    op: cut
+    from: [cape, cape_hem, cape_border]
+    on: cape.center
+    align: center
+    offset: [0, 0, 0.36]
+  - name: cape_side_l                # slanted side trim: the cape flares from x 0.37 (top) to 0.63 (hem)
+    shape: box
+    size: [1.0, 3.0, 2.0]
+    op: cut
+    from: [cape, cape_hem, cape_border]
+    on: cape.center
+    align: center
+    offset: [-0.9884, 0.0737, 0]
+    rotate: [0, 0, -9.93]
+    mirror: x
+  - name: cape_corner_l              # rounds the hem's outer corner up (x 0.56 -> 0.64, y 0.32 -> 0.37)
+    shape: box
+    size: [0.6, 0.4, 2.0]
+    op: cut
+    from: [cape, cape_hem]
+    on: cape.center
+    align: center
+    offset: [-0.706, -0.9321, 0]
+    rotate: [0, 0, -32.0]
+    mirror: x
+  - name: cape_shoulder_l            # slopes the cape's top edge 14 deg down under the pauldrons: 1.885 m
+    shape: box                       # behind the neck -> about 1.81 m at the shoulders (no red corner
+    size: [1.0, 0.6, 1.6]            # sticking up in 3/4 views)
+    op: cut
+    from: [cape]
+    on: cape.center
+    align: center
+    offset: [-0.374, 1.0115, -0.49]
+    rotate: [0, 0, 14.3]
+    mirror: x
+  # --- neck and head ---------------------------------------------------------------------------------
+  - name: gorget                     # steel collar
+    shape: cone
+    radius: 0.15
+    top_radius: 0.115
+    height: 0.07
+    sides: 8
+    material: metal
+    on: torso.top
+    align: bottom
+    offset: [0, -0.03, 0]
+  - name: neck
+    shape: cylinder
+    radius: 0.075
+    height: 0.12
+    material: skin_orc
+    on: gorget.center
+    align: center
+    offset: [0, 0.055, 0]
+  - name: head                       # skull, y 1.885..2.085
+    shape: box
+    size: [0.19, 0.20, 0.22]
+    round: 0.07
+    material: skin_orc
+    on: neck.center
+    align: center
+    offset: [0, 0.085, 0]
+  - name: jaw                        # wide orc jaw
+    shape: box
+    size: [0.215, 0.10, 0.20]
+    round: 0.04
+    material: skin_orc
+    on: head.center
+    align: center
+    offset: [0, -0.08, 0.025]
+  - name: hair                       # slicked-back black hair; its top is the top of the asset (2.10 m)
+    shape: ellipsoid
+    size: [0.19, 0.16, 0.24]
+    material: hair_black
+    on: head.center
+    align: center
+    offset: [0, 0.035, -0.035]
+  - name: brow                       # heavy brow ridge
+    shape: box
+    size: [0.17, 0.035, 0.05]
+    round: 0.012
+    material: skin_orc
+    on: head.center
+    align: center
+    offset: [0, 0.03, 0.10]
+  - name: eye_l
+    shape: sphere
+    radius: 0.014
+    material: paint_black
+    on: head.center
+    align: center
+    offset: [-0.042, 0.005, 0.104]
+    mirror: x
+  - name: nose
+    shape: box
+    size: [0.05, 0.055, 0.04]
+    round: 0.015
+    material: skin_orc
+    on: head.center
+    align: center
+    offset: [0, -0.027, 0.12]
+  - name: tusk_l                     # lower tusks pointing up past the lip
+    shape: cone
+    radius: 0.016
+    height: 0.06
+    material: bone
+    on: head.center
+    align: center
+    offset: [-0.045, -0.045, 0.13]
+    rotate: [0, 0, 8]
+    mirror: x
+  - name: beard                      # covers the chin in front of the jaw, y 1.81..1.92
+    shape: ellipsoid
+    size: [0.17, 0.11, 0.10]
+    material: hair_black
+    on: head.center
+    align: center
+    offset: [0, -0.12, 0.095]
+  - name: ear_l                      # pointed ear, tip at (-0.175, 2.04)
+    shape: cone
+    radius: 0.035
+    height: 0.11
+    sides: 4
+    material: skin_orc
+    on: head.center
+    align: center
+    offset: [-0.13, 0.0215, -0.01]
+    rotate: [0, 0, 55]
+    mirror: x
+  - name: earring_l
+    shape: torus
+    radius: 0.016
+    thickness: 0.006
+    material: gold
+    on: head.center
+    align: center
+    offset: [-0.125, -0.015, 0]
+    rotate: [90, 0, 0]
+    mirror: x
+  - name: braid_root_l               # braid from behind the ear forward over the shoulder
+    shape: capsule
+    radius: 0.026
+    height: 0.29
+    material: hair_black
+    on: head.center
+    align: center
+    offset: [-0.115, -0.085, 0.08]
+    rotate: [-55.8, 0, -19.6]
+    mirror: x
+  - name: braid_l                    # hangs straight down in front of the chest to y 1.53
+    shape: capsule
+    radius: 0.027
+    height: 0.32
+    material: hair_black
+    on: braid_root_l.center
+    align: center
+    follow: false
+    offset: [-0.035, -0.21, 0.11]
+    mirror: x
+  - name: braid_ring_l
+    shape: cylinder
+    radius: 0.034
+    height: 0.03
+    material: gold
+    on: braid_l.center
+    align: center
+    offset: [0, -0.08, 0]
+    mirror: x
+  # --- shoulders: layered pauldrons (two half-dome plates, each with a gold rim showing under its edge) --
+  #     Each plate is an ellipsoid cut flat 1.5 cm below its equator (the *_base cuts; a cut exactly at
+  #     the equator leaves non-manifold edges in the export), tilted down toward the arm.
+  - name: pauldron_l                 # top plate: a dome over the shoulder, x -0.20..-0.52, top 1.89
+    shape: ellipsoid
+    size: [0.34, 0.19, 0.46]
+    material: metal
+    on: torso.center
+    align: center
+    offset: [-0.36, 0.155, 0]
+    rotate: [0, 0, 16]
+    mirror: x
+  - name: pauldron_base_l            # flat underside of the dome
+    shape: box
+    size: [0.5, 0.3, 0.6]
+    op: cut
+    on: pauldron_l.center
+    align: top
+    offset: [0, -0.015, 0]
+    mirror: x
+  - name: pauldron_rim_l             # gold edge: a slightly larger half dome 2.5 cm lower, a band under the plate
+    shape: ellipsoid
+    size: [0.37, 0.15, 0.49]
+    material: gold
+    on: pauldron_l.center
+    align: center
+    offset: [0, -0.025, 0]
+    mirror: x
+  - name: pauldron_rim_base_l
+    shape: box
+    size: [0.5, 0.2, 0.6]
+    op: cut
+    on: pauldron_rim_l.center
+    align: top
+    offset: [0, -0.015, 0]
+    mirror: x
+  - name: pauldron_lower_l           # lower plate: a smaller dome sloping 26 deg over the upper arm, out to x -0.70
+    shape: ellipsoid
+    size: [0.27, 0.16, 0.44]
+    material: metal
+    on: torso.center
+    align: center
+    offset: [-0.57, 0.085, 0]
+    rotate: [0, 0, 26]
+    mirror: x
+  - name: pauldron_lower_base_l
+    shape: box
+    size: [0.4, 0.2, 0.6]
+    op: cut
+    on: pauldron_lower_l.center
+    align: top
+    offset: [0, -0.015, 0]
+    mirror: x
+  - name: pauldron_lower_rim_l       # gold edge of the lower plate
+    shape: ellipsoid
+    size: [0.30, 0.14, 0.47]
+    material: gold
+    on: pauldron_lower_l.center
+    align: center
+    offset: [0, -0.025, 0]
+    mirror: x
+  - name: pauldron_lower_rim_base_l
+    shape: box
+    size: [0.4, 0.2, 0.6]
+    op: cut
+    on: pauldron_lower_rim_l.center
+    align: top
+    offset: [0, -0.015, 0]
+    mirror: x
+  - name: shoulder_banner_l          # red strip hanging from the pauldron in front of the chest side
+    shape: box
+    size: [0.075, 0.34, 0.02]
+    material: cloth_red
+    on: torso.center
+    align: center
+    offset: [-0.29, -0.02, 0.16]
+    mirror: x
+  - name: shoulder_banner_tip_l      # pointed cream tip, blended into the strip (one cloth mesh)
+    shape: box
+    size: [0.053, 0.053, 0.02]
+    material: canvas
+    on: shoulder_banner_l.bottom
+    align: center
+    rotate: [0, 0, 45]
+    blend: 0.005
+    mirror: x
+  # --- arms (T-pose): upper_arm -> forearm -> hand; local +Y = out along the arm ---------------------
+  - name: upper_arm_l                # rerebrace, x -0.26..-0.72, axis at y 1.66
+    shape: cylinder
+    radius: 0.102
+    height: 0.46
+    sides: 12
+    material: metal
+    on: torso.center
+    align: center
+    offset: [-0.49, 0.03, 0]
+    rotate: [0, 0, 90]
+    mirror: x
+  - name: upper_arm_band_l           # gold band at the lower edge of the rerebrace
+    shape: cylinder
+    radius: 0.108
+    height: 0.03
+    sides: 12
+    material: gold
+    on: upper_arm_l.center
+    align: center
+    offset: [0, 0.17, 0]
+    mirror: x
+  - name: couter_l                   # elbow cop
+    shape: sphere
+    radius: 0.102
+    material: metal
+    on: upper_arm_l.top
+    align: center
+    offset: [0, 0.025, 0]
+    mirror: x
+  - name: forearm_l                  # vambrace, x -0.76..-0.97
+    shape: cone
+    radius: 0.08
+    top_radius: 0.066
+    height: 0.21
+    sides: 12
+    material: metal
+    on: upper_arm_l.top
+    align: bottom
+    offset: [0, 0.04, 0]
+    mirror: x
+  - name: cuff_l                     # flared cuff at the wrist
+    shape: cone
+    radius: 0.068
+    top_radius: 0.08
+    height: 0.09
+    sides: 12
+    material: metal
+    on: forearm_l.top
+    align: center
+    offset: [0, 0.025, 0]
+    mirror: x
+  - name: cuff_trim_l                # gold edge of the cuff
+    shape: cylinder
+    radius: 0.084
+    height: 0.022
+    sides: 12
+    material: gold
+    on: cuff_l.top
+    align: top
+    mirror: x
+  - name: hand_l                     # bare hand (palm down), x -1.00..-1.15
+    shape: box
+    size: [0.08, 0.15, 0.125]
+    round: 0.02
+    material: skin_orc
+    on: forearm_l.top
+    align: bottom
+    offset: [0, 0.03, 0]
+    mirror: x
+  - name: fingers_l                  # the four fingers together (one finger bone), tips droop 4 deg
+    shape: box
+    size: [0.06, 0.17, 0.115]
+    round: 0.02
+    material: skin_orc
+    on: hand_l.top
+    align: bottom
+    offset: [0.003, -0.01, 0]
+    rotate: [0, 0, 4]
+    mirror: x
+  - name: thumb_l                    # under the front edge of the hand
+    shape: capsule
+    radius: 0.022
+    height: 0.12
+    material: skin_orc
+    on: hand_l.center
+    align: center
+    offset: [-0.045, 0.03, 0.035]
+    mirror: x
+reference: {image: refs/orc_paladin_front.png, view: front, height: 2.1}
+checks:
+  - grounded: {why: "the soles stand exactly on the ground"}
+  - connected: {why: "one rig-ready character: no floating armour pieces"}
+  - stable: {why: "stands on its own in the T-pose"}
+  - size: {height: [2.05, 2.15], width: [2.5, 2.7], why: "2.1 m tall to the top of the head, arm span about 2.6 m"}
+  - symmetric: {axis: x, min: 0.97, why: "a symmetric T-pose; the pouch on one hip is the only asymmetric part"}
+  - visible: {part: chest_sun, view: front, min: 0.8, why: "a large gold sun on the breastplate"}
+  - visible: {part: tabard, view: front, min: 0.6, why: "a cream tabard hanging in front from the belt"}
+  - visible: {part: tabard_sun, view: front, min: 0.8, why: "a gold sun on the tabard"}
+  - visible: {part: cape, view: back, min: 0.8, why: "the red cape covers the back"}
+  - visible: {part: buckle, view: front, min: 0.8, why: "a round gold sun buckle"}
+  - visible: {part: knee_sun_l, view: front, min: 0.8, why: "knee cops with gold sun medallions"}
+  - visible: {part: braid_l, view: front, min: 0.6, why: "two long braids hanging in front of the shoulders"}
+  - visible: {part: pouch, view: front, min: 0.6, why: "a pouch on one hip"}
+  - visible: {part: cape_border, view: front, min: 0.5, why: "gold laurel borders on the red cape, seen beside the legs"}
+  - visible: {part: tabard_laurel_l, view: front, min: 0.8, why: "a gold sun and laurel on the tabard"}
+  - visible: {part: pauldron_rim_l, view: front, min: 0.4, why: "big layered pauldrons with gold trim"}
+  - relation: {a: cape, is: behind, b: torso, why: "the cape falls behind the figure"}
+  - relation: {a: tabard, is: in_front_of, b: pelvis, why: "the tabard hangs in front"}
+  - relation: {a: braid_l, is: in_front_of, b: torso, why: "the braids fall in front as in the picture"}
+  - relation: {a: pouch, is: left_of, b: buckle, why: "the pouch sits on the viewer's left hip as in the picture"}
+  - part_size: {part: cape, height: [1.5, 1.6], why: "from the shoulders to mid-calf, about 0.35 m above the ground at the back"}
+  - contrast: {a: tabard, b: cape, min: 2.5, why: "cream tabard against the red cape"}
+  - contrast: {a: cape, b: torso, min: 2.0, why: "red cape against silver steel"}
+  - contrast: {a: beard, b: jaw, min: 2.0, why: "black beard on olive skin"}
+  - contrast: {a: buckle, b: belt, min: 2.3, why: "a round gold sun buckle on the leather belt"}
+  - readable_at: {px: 32, view: front, min_iou: 0.85, keep: [cape, tabard, torso, upper_arm_l, upper_arm_r], why: "game asset: the T-pose, the red cape and the cream tabard read at icon size"}
+  - readable_at: {px: 32, view: iso, min_iou: 0.8, keep: [cape, tabard, pauldron_l, pauldron_r], why: "strong iso silhouette: broad pauldrons, red cape, cream tabard"}
+  - matches_reference: {min_iou: 0.93, max_missing: 0.04, why: "the designer's front concept (measured IoU 0.948 / 0.958 / 0.959 at res 256 / 384 / 512; the margin covers the res-256 pixel noise)"}
+  - part_size: {part: forearm_l, height: [0.10, 0.20], why: "T-pose: the forearm lies horizontal"}
+  - relation: {a: cape_hem, is: below, b: knee_l, why: "the cape hangs to mid-calf"}
+  - relation: {a: cape_hem, is: above, b: foot_l, why: "the cape stops at mid-calf, clear of the ground"}
+  - visible: {part: cape_hem, view: back, min: 0.8, why: "gold hem on the cape"}
+  - relation: {a: tusk_l, is: in_front_of, b: head, why: "lower tusks jut forward"}
+  - readable_at: {px: 64, view: front, min_iou: 0.85, keep: [jaw, chest_sun, buckle, knee_sun_l, fingers_l], why: "head, sun and hands read at a far game camera"}
+  - max_parts: {max: 100, why: "game-ready low-poly: about 80-100 named parts"}
+  - max_materials: 9

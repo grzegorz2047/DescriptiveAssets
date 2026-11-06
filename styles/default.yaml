@@ -71,6 +71,10 @@ palette:
   signal_red: "#c23b30"
   lamp_yellow: "#ffe08a"
   canvas_cream: "#e4dcc6"
+  orc_olive: "#86903f"
+  hair_black_c: "#2a2523"
+  hair_black_dark: "#161312"
+  glow_cyan: "#5cc8ff"
   helper_grey: "#9a9da3"
 
 materials:
@@ -101,6 +105,8 @@ materials:
   leather:     {color: leather_brown, pattern: noise, pattern_color: leather_dark, scale: 0.05}
   skin:        {color: skin_tone, shine: 0.1}
   hair:        {color: hair_brown, pattern: stripes, pattern_color: hair_dark, scale: 0.04, axis: y}
+  skin_orc:    {color: orc_olive, shine: 0.1}
+  hair_black:  {color: hair_black_c, pattern: stripes, pattern_color: hair_black_dark, scale: 0.04, axis: y}
   bone:        {color: bone_white, shine: 0.1}
   rope:        {color: rope_tan, pattern: stripes, pattern_color: rope_dark, scale: 0.04, axis: y}
   # --- nature and terrain
@@ -123,6 +129,7 @@ materials:
   canvas:      {color: canvas_cream, shine: 0.1}
   # --- light sources (no emission in the renderer: a bright, warm, flat color)
   lamp:        {color: lamp_yellow, shine: 0.3}
+  glow_blue:   {color: glow_cyan, shine: 0.3}
   # --- engine helpers (scale figure); neutral so it never competes with the asset
   helper:      {color: helper_grey}
 

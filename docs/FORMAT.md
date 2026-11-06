@@ -69,7 +69,7 @@ Patterns live in **part-local** coordinates, so they turn with their part. Brick
 on upward faces; planks get staggered joints and a tint per board; patterns finer than about 3 px
 fade to their mean color instead of flickering. There is no emission: a lamp is a bright color.
 
-**Default materials** (`styles/default.yaml`, 41):
+**Default materials** (`styles/default.yaml`, 44):
 
 | material | color | pattern | shine |
 |---|---|---|---|
@@ -95,6 +95,8 @@ fade to their mean color instead of flickering. There is no emission: a lamp is 
 | `leather` | #7b4a2c | noise #663c23, scale 0.05 | 0 |
 | `skin` | #e2ae8a | solid | 0.1 |
 | `hair` | #4a3020 | stripes #36231a, scale 0.04, along y | 0 |
+| `skin_orc` | #86903f | solid (olive orc skin) | 0.1 |
+| `hair_black` | #2a2523 | stripes #161312, scale 0.04, along y | 0 |
 | `bone` | #e9e0c9 | solid | 0.1 |
 | `rope` | #bb9b67 | stripes #9a7d4f, scale 0.04, along y | 0 |
 | `leaf` | #55913b | noise #41752d, scale 0.15 | 0 |
@@ -113,6 +115,7 @@ fade to their mean color instead of flickering. There is no emission: a lamp is 
 | `paint_blue` | #2f5fa8 | solid | 0.15 |
 | `canvas` | #e4dcc6 | solid (doped linen of early aircraft) | 0.1 |
 | `lamp` | #ffe08a | solid | 0.3 |
+| `glow_blue` | #5cc8ff | solid (a light: no emission, a bright color) | 0.3 |
 | `helper` | #9a9da3 | solid (the scale figure; not for assets) | 0 |
 
 Stripes and planks at 0.04 m (hair, rope) fade to a flat color above about 0.015 m/px, i.e. on
@@ -292,6 +295,60 @@ reference:                      # one mapping or a list of them
   color for flat concept art, `suggested` base color for lit pictures), a diff grid
   (`#` both, `+` model only, `-` picture only) and `out/<asset>/match_<i>.png`.
 
+### 5.1 Picture structure (`sightline structure`)
+
+`match` compares outlines. Inside the outline a concept shows how the object is divided: plates, a
+dark frame between them, lights, trims. `sightline structure` reads those divisions from the picture
+alone and, for an asset, says where the model's parts and materials agree with them.
+
+- **Edges**: the Lab colour gradient (lightness plus chroma) of a lightly smoothed picture, taken
+  relative to the local lightness (a step in a dark area counts more, as for the eye), thinned and
+  kept by hysteresis between the 70% and 88% quantiles of the object's own gradients. The outline is
+  not an edge.
+- **Regions**: connected areas of one class (dark / bright / accent) cut by the edges; a boundary
+  with no edge on it is shading, so the regions on both sides join. Regions under 0.15% of the object
+  join the neighbour they share the most boundary with; lights and decals may stay small.
+- **Classes**: dark/bright split by Otsu on lightness inside the object (fixed L 30 when the
+  picture is not two-toned); **accent** = saturated (chroma >= 24), for lights, decals and gems.
+- **Relief guess** (not measured depth): a bright region framed by dark seams or strong edges is a
+  `raised plate`, a dark region is `recessed (frame or gap)`, an accent is a `light or decal`, else
+  `surface`. `shading` says where a region gets lighter, a hint of curvature.
+- Regions get ids (`R1` largest), size and position in meters (with `--height`; else % of the
+  height) and a left/right `pair` when a region of the same class mirrors it.
+
+`sightline structure <asset>` aligns the picture with the model like `match` (default `--res 512`)
+and reports:
+
+```
+CLASSES    dark/bright/accent agree on 69% of the shared silhouette
+DIVISIONS  43% of the picture's inner edges have a model part boundary within 2 px; 78% of the model's part boundaries lie on a picture edge
+FINDINGS   8 regions disagree with the model, 52 agree
+  R18  dark  0.13 x 0.23 m at x -0.06..+0.08, y 1.41..1.64: picture is dark here, the model bright: chest (metal); use a dark part (frame, gap, joint) here
+  R97  accent blue  0.03 x 0.02 m at x -0.05..-0.02, y 1.77..1.79: light or decal missing: the model shows visor (iron) here; add a small blue part
+SPLITS     model parts that the picture divides into several elements (split them, or add plates on them):
+  chest (metal): 3 picture regions R33, R43, R50 (bright)
+```
+
+and writes `out/<asset>/structure_<i>.png` (picture regions that disagree | the model with its part
+boundaries | class agreement and shared / picture-only / model-only edges).
+
+The three classes suit mechanical designs (plates, frame, lights). On multi-coloured costumes (red
+cloth, gold trim, skin) large saturated areas count as accents and the agreement figure is low.
+
+### 5.2 Importing a ready model (`sightline import`)
+
+`sightline import model.glb [--name N] [--max-parts 120] [--no-split]` writes `assets/<name>.yaml`:
+one part per mesh primitive, split into its connected pieces (vertices welded by position), the
+largest `--max-parts` kept. Each piece becomes an oriented primitive: the principal axes of its
+area-weighted vertices (snapped to world axes within 4 degrees), the shape chosen by how much of that
+box a closed piece fills (box ~1, cylinder ~0.79, ellipsoid ~0.52, cone ~0.26; open meshes stay boxes),
+the material nearest to the base colour (or to the mean of its texture under its UVs). Skinned meshes
+are read in their default node pose. The model is moved so it stands on y = 0, centred in x and z.
+Every part carries a comment with its source, fill ratio, fit error (RMS distance of the piece's
+vertices from the part's surface) and colour; `WORST FITS` lists the parts to refine first. The file
+is a starting point: render it next to a picture of the original and refine with `match` and
+`structure`.
+
 ## 6. Levels
 
 `levels/<name>.yaml`: a grid of columns of terrain, read by a navigation bot. The two examples are
@@ -390,6 +447,8 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--quality full\|high\|medium\|low] [--max-tris N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table with triangles before and after decimation |
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
+| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
+| `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
 | `sightline styles [name]`, `sightline shapes` | materials and colors; shape, anchor and placement reference |
 

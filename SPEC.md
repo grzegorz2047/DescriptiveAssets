@@ -114,7 +114,7 @@ render: {res: 256, views: [front, right, top, iso]}
   → the style, for the palette, the materials and every key of light/outline/ground/render.
   Default materials resolve palette names against the merged palette, so a style can recolor the
   library by overriding palette keys, and every style offers every default material.
-- `styles/default.yaml` has 41 materials (see `docs/FORMAT.md`), including `paint_red`, `paint_blue`, `canvas`, `lamp`
+- `styles/default.yaml` has 44 materials (see `docs/FORMAT.md`), including `paint_red`, `paint_blue`, `canvas`, `skin_orc`, `hair_black`, `lamp`, `glow_blue`
   (a bright warm color; there is no emission) and `helper` (the scale figure).
 - `Style.material(name)` raises SightlineError with did_you_mean on unknown material.
 
@@ -1025,3 +1025,33 @@ azimuth a and −a give mirror images of symmetric objects).
    colors; repeat until `matches_reference` passes.
 5. Add the designer's intent as checks, show `sheet.png` + `match_0.png`, take feedback by part
    names; export `.glb`.
+6. `sightline structure <asset>`: fix the regions whose class disagrees, add the missing lights,
+   split the parts the picture divides.
+
+### 12.4 Picture structure (`structure.py`)
+
+- `analyze_structure(image, view="front", height=None, mask=None, *, root=None) -> dict`: edges
+  (Lab gradient relative to local lightness, non-maximum suppression, hysteresis at the 70%/88%
+  quantiles), regions (class components cut by edges; class boundaries without an edge joined as
+  shading; small regions merged, lights kept), classes (dark/bright by Otsu on L, accent by chroma
+  >= 24), a relief guess per region, left/right pairs; `format_structure`, `write_structure_png`.
+- `compare_structure(asset, index=0, res=512) -> dict`: the picture aligned as in `match_asset`;
+  class agreement over the shared silhouette, edge/part-boundary alignment within 2 px, a verdict
+  per region (`ok`, class mismatch, missing light, outside the silhouette), `splits` (parts covering
+  >= 2 listed regions); `format_compare`, `write_compare_png` (`out/<asset>/structure_<i>.png`).
+- Tuned with `tools/structure_bench.py`: renders of the example assets (clean, outlined, and
+  blurred/noisy/JPEG) scored against the renderer's part map and depth. Means over 9 assets: edge
+  F1 0.68, true elements recovered as their own region 0.42, region purity 0.74, clear-cut material
+  class accuracy 0.76. On Blender renders of glTF sample models (`tools/blender_truth.py`):
+  BrainStem edge F1 0.81, elements recovered 0.57; CesiumMilkTruck all 7 elements.
+
+## 13. Import (`importer.py`)
+
+- `import_glb(path, name=None, *, style=None, split=True, max_parts=120) -> {name, parts, facts, yaml}`
+  and `format_import`. One oriented primitive per mesh primitive (or connected piece): PCA axes
+  snapped to world axes within 4 degrees; shape by the fill ratio of the oriented box for closed
+  pieces; nearest style material to the base colour or the texture mean under the piece's UVs;
+  skinned meshes in their default node pose; the model stood on y = 0 and centred in x, z; pieces
+  under 0.4% of the model's diagonal dropped; RMS fit error per part.
+- CLI: `sightline import <file.glb>` writes `assets/<name>.yaml` (refuses to overwrite without
+  `--force`, exit 2 for a missing or non-.glb file).

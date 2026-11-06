@@ -1,0 +1,441 @@
+asset: robot
+brief: >
+  A silver humanoid robot in a T-pose, built from the designer's front concept
+  (refs/robot_front.png). 1.9 m tall, arm span about 2.23 m. Brushed steel plates over a black
+  mechanical frame, blue lights (no emission: a bright blue) at the eyes, ears, chest, shoulders,
+  arms, hips, thighs, knees and feet and down the spine. The back has its own plate over a black spine
+  with blue lights. Detailed low-poly: the plates follow the divisions `sightline structure` finds in
+  the concept; no rivets or panel lines; the T-pose keeps it ready for rigging.
+style: default
+tags: [character]
+reference: {image: refs/robot_front.png, view: front, height: 1.9}
+# Left/right follow the axes: _l parts are on -X (the viewer's left in the front view), which is the
+# robot's right side. Every _l part is mirrored to _r. Arms run along X at shoulder height ~1.53 m.
+# Plate positions come from `sightline structure assets/refs/robot_front.png --height 1.9`.
+parts:
+  # --- feet and lower legs ------------------------------------------------------------------------
+  - name: sole_l                     # the dark 8 cm sole
+    shape: box
+    size: [0.17, 0.07, 0.3]
+    round: 0.015
+    material: paint_black
+    at: [-0.175, 0, 0.04]
+    align: bottom
+    mirror: x
+  - name: boot_l
+    shape: box
+    size: [0.15, 0.13, 0.27]
+    round: 0.03
+    material: metal
+    at: [-0.175, 0.06, 0.045]
+    align: bottom
+    mirror: x
+  - name: foot_band_l
+    shape: box
+    size: [0.04, 0.07, 0.03]
+    round: 0.006
+    material: iron
+    at: [-0.167, 0.13, 0.185]
+    mirror: x
+  - name: foot_light_l
+    shape: box
+    size: [0.014, 0.045, 0.03]
+    material: glow_blue
+    at: [-0.167, 0.13, 0.2]
+    mirror: x
+  - name: ankle_l
+    shape: cylinder
+    radius: 0.042
+    height: 0.09
+    material: iron
+    at: [-0.16, 0.12, -0.01]
+    align: bottom
+    mirror: x
+  - name: calf_l                     # dark calf mechanics, seen beside the shin plate
+    shape: cone
+    radius: 0.045
+    top_radius: 0.064
+    height: 0.44
+    sides: 8
+    material: iron
+    at: [-0.158, 0.14, -0.04]
+    align: bottom
+    mirror: x
+  - name: shin_lower_l               # hexagonal frustum: narrow at the ankle, widest under the calf
+    shape: cone
+    radius: 0.04
+    top_radius: 0.066
+    height: 0.26
+    sides: 6
+    material: metal
+    at: [-0.145, 0.21, 0.025]
+    align: bottom
+    mirror: x
+  - name: shin_upper_l
+    shape: cone
+    radius: 0.066
+    top_radius: 0.058
+    height: 0.13
+    sides: 6
+    material: metal
+    at: [-0.14, 0.47, 0.025]
+    align: bottom
+    mirror: x
+  - name: knee_joint_l
+    shape: box
+    size: [0.1, 0.14, 0.11]
+    round: 0.035
+    material: iron
+    at: [-0.135, 0.645, -0.01]
+    mirror: x
+  - name: knee_plate_l
+    shape: box
+    size: [0.08, 0.1, 0.05]
+    round: 0.02
+    material: metal
+    at: [-0.13, 0.625, 0.055]
+    mirror: x
+  - name: knee_light_l
+    shape: box
+    size: [0.028, 0.01, 0.02]
+    material: glow_blue
+    at: [-0.13, 0.67, 0.083]
+    mirror: x
+  - name: thigh_core_l               # dark inner thigh, seen between the plates
+    shape: capsule
+    radius: 0.06
+    height: 0.4
+    material: iron
+    at: [-0.105, 0.87, -0.02]
+    mirror: x
+  - name: thigh_plate_l              # 8-sided frustum: narrow at the knee, wide at the hip
+    shape: cone
+    radius: 0.075
+    top_radius: 0.092
+    height: 0.37
+    sides: 8
+    material: metal
+    at: [-0.135, 0.67, 0.01]
+    align: bottom
+    mirror: x
+  - name: thigh_light_l              # the light strip on the outer thigh
+    shape: box
+    size: [0.014, 0.04, 0.03]
+    material: glow_blue
+    at: [-0.216, 0.845, 0.0]
+    mirror: x
+  # --- pelvis --------------------------------------------------------------------------------------
+  - name: pelvis
+    shape: box
+    size: [0.34, 0.15, 0.22]
+    round: 0.03
+    material: iron
+    at: [0, 1.05, -0.02]
+  - name: hip_belt_l                 # the V of the hip plate: a wing from the hip down to the middle
+    shape: box
+    size: [0.17, 0.06, 0.05]
+    round: 0.015
+    rotate: [0, 0, -30]
+    material: metal
+    at: [-0.075, 1.165, 0.095]
+    mirror: x
+  - name: codpiece                   # trapezoid shield: a 4-sided frustum, wide at the top
+    shape: cone
+    radius: 0.055
+    top_radius: 0.1
+    height: 0.15
+    sides: 4
+    material: metal
+    at: [0, 0.98, 0.05]
+    align: bottom
+  - name: hip_disc_l                 # round hip joint turned 40 deg forward, blue ring on its face
+    shape: cylinder
+    radius: 0.05
+    height: 0.04
+    rotate: [90, -50, 0]
+    material: iron
+    at: [-0.19, 1.09, 0.03]
+    mirror: x
+  - name: hip_ring_l
+    shape: torus
+    radius: 0.03
+    thickness: 0.006
+    rotate: [90, -50, 0]
+    material: glow_blue
+    at: [-0.206, 1.09, 0.044]
+    mirror: x
+  # --- torso ---------------------------------------------------------------------------------------
+  - name: abdomen
+    shape: cylinder
+    radius: 0.12
+    height: 0.26
+    sides: 8
+    material: iron
+    at: [0, 1.12, -0.02]
+    align: bottom
+  - name: ab_plate
+    shape: box
+    size: [0.08, 0.06, 0.05]
+    round: 0.015
+    material: metal
+    at: [0, 1.335, 0.085]
+    repeat: {count: 3, step: [0, -0.078, 0]}
+  - name: chest_core                 # the dark frame between and around the chest plates
+    shape: ellipsoid
+    size: [0.4, 0.32, 0.25]
+    material: iron
+    at: [0, 1.47, -0.02]
+  - name: pec_l
+    shape: box
+    size: [0.15, 0.2, 0.07]
+    round: 0.03
+    rotate: [0, -8, 0]
+    material: metal
+    at: [-0.11, 1.51, 0.1]
+    mirror: x
+  - name: rib_plate_l                # the lower chest plate under each pec
+    shape: box
+    size: [0.11, 0.08, 0.05]
+    round: 0.015
+    rotate: [0, 0, -14]
+    material: metal
+    at: [-0.1, 1.375, 0.09]
+    mirror: x
+  - name: sternum_light
+    shape: box
+    size: [0.03, 0.02, 0.02]
+    material: glow_blue
+    at: [0, 1.55, 0.098]
+  - name: solar_light
+    shape: box
+    size: [0.03, 0.012, 0.02]
+    material: glow_blue
+    at: [0, 1.405, 0.102]
+  - name: back_plate
+    shape: box
+    size: [0.3, 0.22, 0.05]
+    round: 0.02
+    material: metal
+    at: [0, 1.47, -0.15]
+  - name: spine
+    shape: cylinder
+    radius: 0.035
+    height: 0.34
+    sides: 8
+    material: iron
+    at: [0, 1.06, -0.13]
+    align: bottom
+  - name: spine_light
+    shape: box
+    size: [0.03, 0.025, 0.02]
+    material: glow_blue
+    at: [0, 1.15, -0.17]
+    repeat: {count: 2, step: [0, 0.11, 0]}
+  # --- neck and head -------------------------------------------------------------------------------
+  - name: neck
+    shape: cylinder
+    radius: 0.06
+    height: 0.1
+    sides: 8
+    material: iron
+    at: [0, 1.585, -0.01]
+    align: bottom
+  - name: neck_light
+    shape: box
+    size: [0.014, 0.03, 0.02]
+    material: glow_blue
+    at: [0, 1.628, 0.063]
+  - name: head_core                  # dark behind the face mask: the recesses at the cheeks
+    shape: ellipsoid
+    size: [0.17, 0.22, 0.19]
+    material: iron
+    at: [0, 1.775, -0.012]
+  - name: cranium
+    shape: ellipsoid
+    size: [0.17, 0.14, 0.2]
+    material: metal
+    at: [0, 1.83, 0]
+  - name: face                       # hexagonal mask: narrow chin, wide brow
+    shape: cone
+    radius: 0.04
+    top_radius: 0.074
+    height: 0.16
+    sides: 6
+    material: metal
+    at: [0, 1.665, 0.03]
+    align: bottom
+  - name: crest
+    shape: box
+    size: [0.03, 0.04, 0.17]
+    round: 0.01
+    material: iron
+    at: [0, 1.875, 0]
+  - name: forehead_light
+    shape: box
+    size: [0.014, 0.018, 0.02]
+    material: glow_blue
+    at: [0, 1.86, 0.093]
+  - name: visor
+    shape: box
+    size: [0.11, 0.025, 0.02]
+    round: 0.006
+    material: iron
+    at: [0, 1.776, 0.088]
+  - name: eye_l
+    shape: box
+    size: [0.03, 0.014, 0.02]
+    material: glow_blue
+    at: [-0.035, 1.776, 0.098]
+    mirror: x
+  - name: ear_l
+    shape: cylinder
+    radius: 0.04
+    height: 0.036
+    rotate: [0, 0, 90]
+    material: iron
+    at: [-0.082, 1.765, -0.01]
+    mirror: x
+  - name: ear_ring_l
+    shape: torus
+    radius: 0.025
+    thickness: 0.006
+    rotate: [0, 0, 90]
+    material: glow_blue
+    at: [-0.1, 1.765, -0.01]
+    mirror: x
+  # --- shoulders and arms (T-pose along X) ---------------------------------------------------------
+  - name: deltoid_l
+    shape: ellipsoid
+    size: [0.2, 0.15, 0.2]
+    material: metal
+    at: [-0.265, 1.575, 0]
+    mirror: x
+  - name: shoulder_disc_l            # the round joint at the armpit, with a blue ring
+    shape: cylinder
+    radius: 0.032
+    height: 0.04
+    rotate: [90, 0, 0]
+    material: iron
+    at: [-0.205, 1.53, 0.075]
+    mirror: x
+  - name: shoulder_ring_l
+    shape: torus
+    radius: 0.02
+    thickness: 0.006
+    rotate: [90, 0, 0]
+    material: glow_blue
+    at: [-0.205, 1.53, 0.097]
+    mirror: x
+  - name: upper_arm_core_l           # dark underside of the upper arm
+    shape: capsule
+    radius: 0.05
+    height: 0.3
+    rotate: [0, 0, 90]
+    material: iron
+    at: [-0.47, 1.525, 0]
+    mirror: x
+  - name: upper_arm_plate_l          # the plate covers only the top half
+    shape: box
+    size: [0.16, 0.05, 0.11]
+    round: 0.02
+    material: metal
+    at: [-0.43, 1.565, 0.005]
+    mirror: x
+  - name: upper_arm_light_l
+    shape: box
+    size: [0.03, 0.007, 0.02]
+    material: glow_blue
+    at: [-0.44, 1.52, 0.054]
+    mirror: x
+  - name: elbow_l
+    shape: sphere
+    radius: 0.05
+    material: iron
+    at: [-0.56, 1.535, 0]
+    mirror: x
+  - name: forearm_l                  # 8-sided frustum along X: wide at the elbow
+    shape: cone
+    radius: 0.058
+    top_radius: 0.04
+    height: 0.25
+    sides: 8
+    rotate: [0, 0, 90]
+    material: metal
+    at: [-0.7, 1.535, 0]
+    mirror: x
+  - name: forearm_light_l
+    shape: box
+    size: [0.045, 0.007, 0.02]
+    material: glow_blue
+    at: [-0.755, 1.512, 0.042]
+    mirror: x
+  - name: wrist_l
+    shape: cylinder
+    radius: 0.033
+    height: 0.05
+    rotate: [0, 0, 90]
+    material: metal
+    at: [-0.835, 1.532, 0]
+    mirror: x
+  - name: palm_l
+    shape: box
+    size: [0.13, 0.05, 0.1]
+    round: 0.015
+    material: metal
+    at: [-0.915, 1.535, 0]
+    mirror: x
+  - name: thumb_l
+    shape: box
+    size: [0.085, 0.025, 0.025]
+    round: 0.008
+    rotate: [0, 0, 45]
+    material: metal
+    at: [-0.93, 1.49, 0.045]
+    mirror: x
+  - name: finger_a_l                 # fingers fan out, each a little lower than the last
+    shape: box
+    size: [0.09, 0.02, 0.018]
+    round: 0.006
+    rotate: [0, 0, 2]
+    material: metal
+    at: [-1.02, 1.538, -0.033]
+    mirror: x
+  - name: finger_b_l
+    shape: box
+    size: [0.1, 0.02, 0.018]
+    round: 0.006
+    rotate: [0, 0, 7]
+    material: metal
+    at: [-1.025, 1.53, -0.011]
+    mirror: x
+  - name: finger_c_l
+    shape: box
+    size: [0.12, 0.02, 0.018]
+    round: 0.006
+    rotate: [0, 0, 12]
+    material: metal
+    at: [-1.033, 1.521, 0.011]
+    mirror: x
+  - name: finger_d_l
+    shape: box
+    size: [0.11, 0.02, 0.018]
+    round: 0.006
+    rotate: [0, 0, 17]
+    material: metal
+    at: [-1.027, 1.512, 0.033]
+    mirror: x
+checks:
+  - grounded
+  - connected
+  - stable
+  - size: {height: [1.86, 1.94], width: [2.15, 2.3], why: "1.9 m tall, T-pose arm span about 2.23 m"}
+  - symmetric: {axis: x, min: 0.95}
+  - visible: {part: eye_l, view: front, min: 0.6, why: "the glowing eyes are the face"}
+  - visible: {part: sternum_light, view: front, min: 0.6}
+  - visible: {part: spine_light_1, view: back, min: 0.6, why: "the back has its own lights"}
+  - relation: {a: cranium, is: above, b: chest_core}
+  - relation: {a: back_plate, is: behind, b: chest_core}
+  - contrast: {a: shoulder_ring_r, b: shoulder_disc_r, min: 2.0, why: "the blue rings read against the black joints"}
+  - readable_at: {px: 48, min_iou: 0.7, keep: [cranium, chest_core, codpiece], view: front, why: "head, chest and the hip plate read on a small portrait"}
+  - matches_reference: {min_iou: 0.83, max_missing: 0.08, why: "the designer's front concept"}
+  - max_parts: 100
