@@ -46,6 +46,7 @@ the same change and say so.
 pyproject.toml  SPEC.md  README.md (pl)
 src/sightline/
   errors.py      SightlineError, did_you_mean                      (done)
+  results.py     CheckResult shared by asset and level checks       (done)
   camera.py      view_basis, Camera, make_cameras, fixed_camera     (done)
   model.py       Material, Style, Part, Group, Scene, Asset dataclasses
   style.py       load_style(name_or_path, root) -> Style
@@ -296,6 +297,16 @@ class Scene:
     def only(self, indices) -> "Scene"             # sub-scene with these solids + their cutters (same Part objects)
     def with_parts(self, extra_parts) -> "Scene"   # adds helper parts as their own groups
 
+def make_part(name, shape, params: dict, position, rotate_deg=(0, 0, 0), material=None,
+              helper=False, op="union") -> Part   # normalizes params, computes local_half/matrix
+
+@dataclass
+class ReferenceSpec:             # parsed `reference:` entry
+    image: pathlib.Path          # resolved, must exist (SightlineError otherwise)
+    view: str                    # a camera view name; {azimuth, elevation} -> camera.orbit_view(...)
+    height: float | None
+    mask: str | pathlib.Path     # "auto" or resolved path
+
 @dataclass
 class Asset:
     name: str
@@ -305,6 +316,7 @@ class Asset:
     tags: list[str]
     parts: list[Part]            # expanded, file order
     checks: list                 # raw check entries from YAML (validated by checks.py)
+    references: list[ReferenceSpec]
     raw: dict                    # parsed YAML
     def scene(self) -> Scene
     def part(self, name) -> Part # SightlineError with did_you_mean
