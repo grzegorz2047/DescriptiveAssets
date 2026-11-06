@@ -27,6 +27,7 @@ from sightline.reference import (
     shade_lambert,
     srgb_to_lab,
 )
+from sightline.reference import _model_coverage
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIX = ROOT / "tests" / "fixtures"
@@ -166,6 +167,7 @@ def test_analyze_concept_art(concept):
     assert m["source"] == "background" and m["background"] == "#e8e4da" and m["confidence"] == "high"
     assert m["components"] == 1 and m["bbox_px"] == list(BBOX)
     assert m["coverage"] == pytest.approx((ids > 0).sum() / (W * H), abs=1e-4)
+    assert r["lighting"]["mode"] == "flat" and r["lighting"]["source"] == "auto"
     p = r["proportions"]
     assert p["height_to_width"] == pytest.approx(260 / 120, abs=1e-3)
     assert p["symmetry_lr"] > 0.97 and p["fill"] == pytest.approx((ids > 0).sum() / (120 * 260), abs=1e-3)
@@ -345,23 +347,28 @@ BALCONY = """\
 """
 
 
-def tower(name, shaft_w=2, shaft_mat="wood", balcony=True, reference="reference: {image: blocky_front.png, view: front}"):
+def tower(name, shaft_w=2, shaft_mat="wood", balcony=True,
+          reference="reference: {image: blocky_front.png, view: front, lighting: lit}"):
     text = TOWER.format(name=name, shaft_w=shaft_w, shaft_mat=shaft_mat, balcony=BALCONY if balcony else "",
                         reference=reference)
     return load_asset_text(text, TMP / f"{name}.yaml", ROOT)
 
 
 def render_reference(asset, view, res, name):
-    """A 'perfect' reference: the asset's own flat Lambert render on a plain background."""
+    """A 'perfect' reference: the asset's own flat Lambert render on a plain background, with the exact
+    silhouette (pixels the model covers by half or more), not the march's half-pixel wider one."""
     lo, hi = asset.scene().bounds()
     cam = make_cameras([view], lo, hi, res=res)[view]
-    rgb = shade_lambert(asset, march(asset.scene(), cam), background=np.array(BG) / 255)
+    vb = march(asset.scene(), cam)
+    rgb = shade_lambert(asset, vb, background=np.array(BG) / 255)
+    rgb[_model_coverage(asset.scene(), cam, vb.hit) < 0.5] = np.array(BG) / 255
     return save(Image.fromarray((rgb * 255).round().astype(np.uint8)), name)
 
 
 @pytest.fixture(scope="module")
 def blocky():
-    """The full blocky tower rendered from the front at 320 px is the reference of every variant."""
+    """The full blocky tower rendered from the front at 320 px is the reference of every variant. Its faces are
+    flat-shaded (one tone per part), which looks like flat paint, so the variants say `lighting: lit`."""
     render_reference(tower("blocky_src", reference=""), "front", 320, "blocky_front.png")
     return tower("blocky_tower")
 
@@ -410,14 +417,16 @@ def test_match_missing_part_is_located(blocky):
     assert reg["bbox"]["x"] == [pytest.approx(1.0, abs=0.08), pytest.approx(2.0, abs=0.08)]
     assert reg["bbox"]["y"] == [pytest.approx(3.2, abs=0.08), pytest.approx(3.8, abs=0.08)]
     assert reg["near"] == "shaft" and "a part is missing here" in reg["hint"]
-    assert reg["area"] == pytest.approx(0.6, rel=0.15) and reg["share"] == pytest.approx(r["missing"], abs=0.005)
+    assert reg["area"] == pytest.approx(0.6, rel=0.15)
+    # `missing` is an area share (partial edge pixels count), the region a count of pixels: close, not equal.
+    assert reg["share"] <= r["missing"] <= reg["share"] + 0.012
     # Bbox centers differ by 0.2 m (the balcony widens the picture); the IoU search undoes that.
     assert r["align"]["shift"] == pytest.approx(0.2, abs=0.04)
     band = next(e for e in r["width_profile"] if e["band"] == "50-60%")
     assert band["diff"]["width"] == pytest.approx(-1.0, abs=0.1) and band["diff"]["left"] == pytest.approx(0, abs=0.05)
     assert re.match(r"model too narrow by (0\.9[5-9]|1\.0[0-5]) m", band["verdict"])
     text = format_match(r)
-    assert re.search(r"missing +(0\.9\d|1\.0\d) x 0\.6\d m .* at x 1\.\d\d\.\.2\.\d\d, y 3\.\d\d\.\.3\.\d\d, next to `shaft` "
+    assert re.search(r"missing +(0\.9\d|1\.0\d) x 0\.(5[6-9]|6\d) m .* at x (0\.9\d|1\.\d\d)\.\.(1\.9\d|2\.\d\d), y 3\.\d\d\.\.3\.\d\d, next to `shaft` "
                      r"-> a part is missing here", text)
 
 
@@ -560,6 +569,156 @@ def test_existing_fixture_reference_matches_tower30():
     names = {e["near"] for e in r["regions"]}
     assert {"bush", "barrel"} <= names  # props the picture does not show
     assert any(e["near"] == "bush" and "not in the reference" in e["hint"] for e in r["regions"])
+
+
+# ----------------------------------------------------------------------------- match accuracy (biplane findings)
+
+PPM = 100  # pixels per meter of the drawn references below
+
+
+def draw_px(boxes, size, name, lines=()):
+    """A flat reference: boxes (x0, y0, x1, y1) in meters (x from the image center, y up from the bottom
+    edge at row size[1] - 20), lines ((x0, y0), (x1, y1), width m)."""
+    w, h = size
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+
+    def px(x, y):
+        return w / 2 + x * PPM, h - 20 - y * PPM
+
+    for x0, y0, x1, y1 in boxes:
+        (a, b), (c, e) = px(x0, y1), px(x1, y0)
+        d.rectangle((round(a), round(b), round(c) - 1, round(e) - 1), fill=(90, 90, 90))
+    for (x0, y0), (x1, y1), width in lines:
+        d.line([px(x0, y0), px(x1, y1)], fill=(60, 60, 60), width=max(1, round(width * PPM)))
+    return save(img, name)
+
+
+WING = """\
+asset: {name}
+parts:
+  - {{name: post, shape: box, size: [0.3, 1.93, 0.3], material: wood, align: bottom}}
+  - {{name: wing, shape: box, size: [10, 0.14, 1.5], material: stone, at: [0, 1.93, 0], align: bottom}}
+{extra}reference: {{image: {image}, view: front, height: 2.07}}
+"""
+
+
+def test_match_iou_has_no_thin_wing_bias_and_holds_across_res():
+    """A 10 m wing 0.14 m thick is 3 px at res 256: the march's half-pixel dilation made it 4 px (+30% "extra")
+    and the reading moved with the pixel phase (0.72..0.76 for one biplane over res 256..1024)."""
+    image = draw_px([(-0.15, 0, 0.15, 1.93), (-5, 1.93, 5, 2.07)], (1100, 260), "wing_ref.png")
+    asset = load_asset_text(WING.format(name="wing", extra="", image=image.as_posix()), TMP / "wing.yaml", ROOT)
+    reads = {res: match_asset(asset, res=res) for res in (160, 200, 256, 320, 512)}
+    ious = [r["iou"] for r in reads.values()]
+    assert min(ious) > 0.96, ious
+    assert max(ious) - min(ious) < 0.015, ious
+    assert all(r["extra"] < 0.03 and r["missing"] < 0.03 for r in reads.values())
+    # SIZE: the same height at every res (it read 2.66 or 2.63 for one model before).
+    assert {round(r["size"]["model"][1], 2) for r in reads.values()} == {2.07}
+    assert all(r["regions"] == [] for r in reads.values())
+
+
+def test_match_aligns_a_grounded_model_on_the_ground_line():
+    """A part 4 cm below the ground made the lowest silhouette pixel the picture's bottom: the whole picture
+    moved down and the IoU fell from 0.80 to 0.69. The ground line y = 0 is the bottom now."""
+    image = draw_px([(-0.15, 0, 0.15, 1.93), (-5, 1.93, 5, 2.07)], (1100, 260), "wing_ref_ground.png")
+    spike = "  - {name: spike, shape: box, size: [0.06, 0.1, 0.06], material: iron, at: [0.5, -0.04, 0], align: bottom}\n"
+    plain = match_asset(load_asset_text(WING.format(name="wing", extra="", image=image.as_posix()), TMP / "wing.yaml", ROOT))
+    sunk = match_asset(load_asset_text(WING.format(name="wing_spike", extra=spike, image=image.as_posix()),
+                                       TMP / "wing_spike.yaml", ROOT))
+    assert sunk["align"]["bottom"] == "ground" and plain["align"]["bottom"] == "ground"
+    assert sunk["align"]["below_ground"] == [{"part": "spike", "depth": 0.04}]
+    assert sunk["iou"] == pytest.approx(plain["iou"], abs=0.01)
+    text = format_match(sunk)
+    assert "picture bottom on the ground line (y = 0.00)" in text and "below the ground: spike 0.04 m" in text
+
+
+def test_width_profile_tolerates_an_edge_on_a_band_border():
+    """A plank 4 cm lower in the picture crosses into the next band: that is no 2.7 m width error."""
+    image = draw_px([(-0.15, 0, 0.15, 3.0), (-1.5, 2.09, 1.5, 2.29)], (400, 340), "plank_ref.png")
+    body = textwrap.dedent(f"""\
+        asset: plank
+        parts:
+          - {{name: post, shape: box, size: [0.3, 3.0, 0.3], material: wood, align: bottom}}
+          - {{name: plank, shape: box, size: [3, 0.2, 0.3], material: planks, at: [0, 2.13, 0.3], align: bottom}}
+        reference: {{image: {image.as_posix()}, view: front, height: 3.0}}
+        """)
+    r = match_asset(load_asset_text(body, TMP / "plank.yaml", ROOT))
+    band = next(e for e in r["width_profile"] if e["band"] == "30-40%")
+    assert band["reference"]["width"] == pytest.approx(3.0, abs=0.05) and band["model"]["width"] == pytest.approx(0.3, abs=0.05)
+    assert band["verdict"].startswith("ok within"), band
+    assert not any("too narrow" in e["verdict"] or "too wide" in e["verdict"] for e in r["width_profile"])
+
+
+def test_thin_wire_regions_are_details_not_part_sizes():
+    """Bracing wires the model skips read "`wing_upper_r` may be too small on the bottom by ~0.26 m"."""
+    frame = [(-2.0, 0, -1.85, 3.0), (1.85, 0, 2.0, 3.0), (-2.0, 2.85, 2.0, 3.0)]
+    wires = [((-1.85, 0.2), (1.85, 2.85), 0.04), ((1.85, 0.2), (-1.85, 2.85), 0.04)]
+    image = draw_px(frame, (500, 340), "wires_ref.png", lines=wires)
+    body = textwrap.dedent(f"""\
+        asset: frame
+        parts:
+          - {{name: leg_l, shape: box, size: [0.15, 2.85, 0.15], material: wood, at: [-1.925, 0, 0], align: bottom, mirror: x}}
+          - {{name: beam, shape: box, size: [4, 0.15, 0.15], material: wood, at: [0, 2.85, 0], align: bottom}}
+        reference: {{image: {image.as_posix()}, view: front, height: 3.0}}
+        """)
+    r = match_asset(load_asset_text(body, TMP / "frame.yaml", ROOT), res=384)
+    assert r["regions"], "the wires should show up as missing regions at this resolution"
+    for e in r["regions"]:
+        assert e["kind"] == "missing" and e["thin"] is True, e
+        assert e["hint"].startswith("thin detail missing") and "too small" not in e["hint"], e
+        assert e["width"] == pytest.approx(0.04, abs=0.02)
+    # The wires count with their real area at every res (they are under half a pixel wide at 128).
+    assert match_asset(load_asset_text(body, TMP / "frame.yaml", ROOT), res=128)["missing"] == pytest.approx(r["missing"], abs=0.02)
+
+
+def shaded_picture(name):
+    """A 'render': one object whose tone changes smoothly across it, darker than the background (like the
+    biplane's front render, whose white wings measure #555a58 on a #767e86 background)."""
+    yy, xx = np.mgrid[0:300, 0:400]
+    img = np.full((300, 400, 3), 118.0)
+    obj = (np.abs(xx - 200) < 150) & (yy > 60) & (yy < 260)
+    tone = 30 + 140 * (xx - 50) / 300 + 25 * np.sin((yy - 60) / 200 * np.pi)
+    img[obj] = tone[obj, None] * np.array([0.96, 1.0, 1.04])
+    return save(Image.fromarray(np.clip(img, 0, 255).round().astype(np.uint8)), name)
+
+
+def test_lit_picture_is_detected_and_changes_the_materials_default():
+    path = shaded_picture("shaded.png")
+    r = analyze_reference(path, root=ROOT)
+    lg = r["lighting"]
+    assert lg["mode"] == "lit" and lg["guess"] == "lit" and lg["source"] == "auto"
+    assert lg["smooth"] >= 0.2 and lg["spread"] >= 4 and "darker than the background" in lg["evidence"]
+    q = next(u for u in r["unknowns"] if u["topic"] == "materials")
+    assert "shaded, not the paint" in q["question"] and q["question"].endswith("?")
+    assert q["default"].startswith("lit: choose each part's material by what it is")
+    assert "flat paint, so the picture colours are the base colours" not in q["default"]
+    text = format_reference(r)
+    assert "LIGHTING   lit (guessed)" in text and "nearest materials match the shading, not the paint" in text
+    # The designer's answer wins over the guess.
+    flat = analyze_reference(path, root=ROOT, lighting="flat")["lighting"]
+    assert flat["mode"] == "flat" and flat["source"] == "given" and flat["guess"] == "lit"
+    with pytest.raises(SightlineError):
+        analyze_reference(path, lighting="shaded")
+
+
+def test_match_suggestions_on_a_dim_lit_picture_keep_the_base_colours(blocky):
+    """A dim, blue-tinted render of the same model: base x reference / rendered suggested near-white or
+    near-black bases for every part; divided by the picture's overall light they keep the base colours."""
+    with Image.open(TMP / "blocky_front.png") as im:
+        arr = np.asarray(im.convert("RGB"), dtype=np.float64)
+    save(Image.fromarray(np.clip(arr * np.array([0.42, 0.45, 0.5]), 0, 255).round().astype(np.uint8)), "blocky_dim.png")
+    r = match_asset(tower("dim_tower", reference="reference: {image: blocky_dim.png, view: front, lighting: lit}"))
+    assert r["lighting"]["mode"] == "lit" and r["lighting"]["exposure"] == pytest.approx([0.42, 0.45, 0.5], abs=0.03)
+    for p in r["parts"]:
+        base = np.array(Image.new("RGB", (1, 1), p["base"]).getpixel((0, 0))) / 255
+        sugg = np.array(Image.new("RGB", (1, 1), p["suggested"]).getpixel((0, 0))) / 255
+        assert delta_e(base, sugg) < 3.0, p
+    assert "picture lit (given)" in format_match(r)
+    # Flat paint: the suggestion is the picture's colour itself.
+    flat = match_asset(tower("dim_flat", reference="reference: {image: blocky_dim.png, view: front, lighting: flat}"))
+    assert all(p["suggested"] == p["reference"] for p in flat["parts"] if p["reference"])
+    assert flat["lighting"] == {"mode": "flat", "source": "given", "exposure": None}
 
 
 # ----------------------------------------------------------------------------- view fitting

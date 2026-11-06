@@ -146,6 +146,60 @@ def test_stable_vs_unstable_overhang():
     assert centered["symmetry"]["x"] >= 0.97
 
 
+CART = """
+    parts:
+      - {name: beam, shape: box, size: [1, 0.3, 9], material: wood, at: [0, 0.6, 0]}
+      - {name: wheel_l, shape: cylinder, radius: 0.3, height: 0.1, round: 0.03, material: paint_black,
+         at: [-0.6, 0.3, 3.8], rotate: [0, 0, 90], mirror: x}
+"""
+
+
+def test_stable_uses_thin_ground_contacts_from_the_sdf():
+    # Round tyres at the front and a 2 cm skid at the back hold the beam up. Both contacts are far thinner
+    # than the 9.4 cm voxel cell: a footprint from the lowest voxel layers saw only the tyres and called a
+    # center of mass between them "1.1 m outside the footprint".
+    skid = "      - {name: skid, shape: capsule, radius: 0.01, height: 0.47, material: iron, at: [0, 0.235, -4.2]}\n"
+    r = inspect_asset(load(CART + skid, "cart"), res=32, views=("front",))
+    m = r["mass"]
+    assert r["voxel_cell"] > 0.09
+    assert m["stable"] is True
+    assert m["support"] == ["wheel_l", "wheel_r", "skid"]
+    # Margin: COM to the hull edge from the skid foot to the outer tyre edge (tyre patch +-11 cm in the band).
+    a, b, q = np.array([0.01, -4.2]), np.array([0.65, 3.8 - 0.11]), np.array(m["center"])[[0, 2]]
+    e = b - a
+    assert m["support_margin"] == pytest.approx(abs(e[0] * (q - a)[1] - e[1] * (q - a)[0]) / np.hypot(*e), abs=0.02)
+    assert not any(w.startswith("unstable") for w in r["warnings"])
+    assert "ground contacts: wheel_l, wheel_r, skid" in format_report(r)
+
+
+def test_unstable_names_the_contacts_and_the_side():
+    r = inspect_asset(load(CART, "cart_no_skid"), res=32, views=("front",))
+    m = r["mass"]
+    assert m["stable"] is False and m["support"] == ["wheel_l", "wheel_r"] and m["tips_toward"] == "-z"
+    tyre_patch = (2 * 0.3 * 0.02) ** 0.5  # half the tyre's contact patch in the 2 cm band
+    assert m["support_margin"] == pytest.approx(-(3.8 - tyre_patch - m["center"][2]), abs=0.02)
+    warning = next(w for w in r["warnings"] if w.startswith("unstable"))
+    assert "behind (-z) the ground contacts (wheel_l, wheel_r)" in warning
+
+
+def test_ground_contacts_skip_parts_above_the_band_and_cut_sheets():
+    from sightline.inspect import SUPPORT_BAND, ground_contacts, measured_scene
+
+    a = load("""
+        parts:
+          - {name: wall, shape: box, size: [4, 3, 0.5], material: stone, align: bottom}
+          - {name: door, shape: box, size: [1, 2, 1], op: cut, on: wall.bottom, align: bottom}
+          - {name: step, shape: box, size: [0.5, 0.2, 0.5], material: stone, at: [0, 0.04, 1], align: bottom}
+        """, "doorway")
+    scene, solids = measured_scene(a)
+    pts, touching = ground_contacts(scene, solids, 0.0, 0.1)
+    assert [a.parts[i].name for i in touching] == ["wall"]  # the step hovers 4 cm up, over the 2 cm band
+    assert SUPPORT_BAND == 0.02
+    # The door's cut face is flush with the wall's bottom: the zero-distance sheet over the doorway is no contact.
+    assert not ((np.abs(pts[:, 0]) < 0.45) & (np.abs(pts[:, 1]) < 0.2)).any()
+    assert pts[:, 0].min() == pytest.approx(-2.0, abs=0.011) and pts[:, 0].max() == pytest.approx(2.0, abs=0.011)
+
+
 # ----------------------------------------------------------------------------- contacts, floating
 
 
@@ -459,7 +513,10 @@ def test_readability_loses_a_thin_spike():
     assert at32["parts_kept"] == ["body", "chimney"]
     assert at32["iou"] > 0.85
     assert read["at_px"][16]["iou"] <= at32["iou"] + 0.02
-    assert any(w.startswith("at 32 px (front) these parts vanish: spike") for w in r["warnings"])
+    assert any(w.startswith("at 32 px (front, iso) these parts vanish: spike") for w in r["warnings"])
+    # The report reads iso too, and a part lost from the front but kept in iso raises no warning.
+    assert r["readability_views"]["iso"]["at_px"][32]["parts_lost"] == ["spike"]
+    assert "  iso    32 px  IoU" in format_report(r)
     # Same machinery at another size and view.
     side = readability(a, "right", (64,))
     assert side["at_px"][64]["parts_lost"] == ["spike"] or "spike" in side["at_px"][64]["parts_kept"]
@@ -563,3 +620,40 @@ def test_tower30_report_and_timing(tower):
     legend = r["silhouette"]["front"]["legend"]
     assert legend["A"] == "shaft" and legend["B"] == "roof"  # by descending visible area
     assert part(r, "lantern")["visible"]["front"] > 0.9 and part(r, "lantern_back")["visible"]["front"] < 0.05
+
+
+def test_hidden_tag_and_iso_readability_quiet_expected_warnings():
+    """An interior part tagged `hidden` is expected out of sight; a plate edge-on from the front that reads
+    from iso is not 'vanishing'."""
+    a = load("""
+        parts:
+          - {name: body, shape: box, size: [2, 2, 2], material: stone, align: bottom}
+          - {name: core, shape: box, size: [0.5, 0.5, 0.5], material: iron, at: [0, 1, 0], tags: [hidden]}
+          - {name: wing, shape: box, size: [6, 0.02, 1.5], material: wood, on: body.top}
+        """, "quiet")
+    r = inspect_asset(a)
+    assert next(p for p in r["parts"] if p["name"] == "core")["visible"]["front"] == 0.0
+    assert not any("core" in w for w in r["warnings"])
+    assert "wing" in r["readability"]["at_px"][32]["parts_lost"]
+    assert "wing" in r["readability_views"]["iso"]["at_px"][32]["parts_kept"]
+    assert not any("vanish" in w for w in r["warnings"])
+    untagged = inspect_asset(load("""
+        parts:
+          - {name: body, shape: box, size: [2, 2, 2], material: stone, align: bottom}
+          - {name: core, shape: box, size: [0.5, 0.5, 0.5], material: iron, at: [0, 1, 0]}
+        """, "loud"))
+    assert any(w.startswith("core is under 30% visible") or w.startswith("core covers no pixel") for w in untagged["warnings"])
+
+
+def test_small_part_behind_a_thin_blade_is_measured_on_a_finer_grid():
+    """A 0.15 m box is 3 x 3 px at 128 px for a 6 m asset: eroded, one pixel is left, and a 5 cm blade in front
+    of its center made it read 0% visible. Small footprints are measured on a 4x finer grid."""
+    a = load("""
+        parts:
+          - {name: wall, shape: box, size: [6, 3, 0.2], material: stone, align: bottom}
+          - {name: lamp, shape: box, size: [0.15, 0.15, 0.1], material: gold, on: wall.front, align: back}
+          - {name: blade, shape: box, size: [0.05, 0.8, 0.02], material: wood, on: lamp.front, align: back,
+             offset: [0, 0, 0.05]}
+        """, "blade")
+    vis = visible_fractions(a, ["lamp"], ["front"], res=128)["lamp"]["front"]
+    assert vis == pytest.approx(1 - 0.05 / 0.15, abs=0.12)

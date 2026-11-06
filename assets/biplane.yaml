@@ -516,6 +516,6 @@ checks:
   - contrast: {a: roundel_top_l, b: wing_upper_outer_l, min: 2.5, why: "blue-white-red roundels on cream linen"}
   - contrast: {a: blade_3, b: cowling, min: 2.0, why: "the dark wooden propeller reads against the cowling"}
   - readable_at: {px: 32, view: iso, min_iou: 0.75, keep: [wing_upper_outer_l, wing_upper_outer_r, wing_lower], why: "game asset: reads as a biplane at icon size"}
-  - matches_reference: {min_iou: 0.80, max_missing: 0.12, why: "the designer's front render (measured 0.83-0.84 at res 256-768; the margin covers the res-256 pixel noise); bracing wires are skipped on purpose and make most of the missing share"}
+  - matches_reference: {min_iou: 0.80, max_missing: 0.16, why: "the designer's front render (IoU 0.82 with exact coverage); the bracing wires are skipped on purpose and make most of the 14% missing"}
   - max_parts: {max: 72, why: "modest part count for a game asset"}
   - max_materials: 12

@@ -32,10 +32,12 @@ from .style import display_path, load_style, read_yaml, resolve_root
 __all__ = ["load_asset", "load_asset_text", "list_assets", "twin_name", "read_yaml", "MAX_PARTS"]
 
 TOP_KEYS = ("asset", "brief", "style", "tags", "parts", "reference", "checks")
-PART_KEYS = ("name", "shape", *PARAM_KEYS, "material", "at", "on", "align", "offset", "follow", "rotate",
+PART_KEYS = ("name", "shape", *PARAM_KEYS, "material", "at", "on", "between", "align", "offset", "follow", "rotate",
              "repeat", "mirror", "mirror_name", "op", "from", "blend", "blend_with", "tags")
+LENGTH_SHAPES = {"box": "size", "ellipsoid": "size", "wedge": "size", "cylinder": "height", "cone": "height",
+                 "capsule": "height"}  # shapes `between` can stretch along their local Y axis
 REPEAT_KEYS = ("count", "step", "axis", "center")
-REFERENCE_KEYS = ("image", "view", "height", "mask")
+REFERENCE_KEYS = ("image", "view", "height", "mask", "lighting")
 MAX_PARTS = 256
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 AXES = {"x": 0, "y": 1, "z": 2}
@@ -225,6 +227,7 @@ class _Builder:
             ctx.fail("part has no shape", head, base_path,
                      "add shape: box | sphere | ellipsoid | cylinder | cone | capsule | torus | wedge")
         raw_params = {k: e[k] for k in PARAM_KEYS if k in e}
+        span = self.between(e, raw_params, shape, head, p, name, i) if "between" in e else None
         params = normalize_params(str(shape), raw_params, lambda key: ctx.where(head, p(key) if key else base_path))
         half = local_half_extents(shape, params)
 
@@ -259,37 +262,44 @@ class _Builder:
         r_own = rotation_matrix(*self.vec3(rotate, head, p("rotate"), "rotate"))
 
         # Placement.
-        if "at" in e and "on" in e:
-            ctx.fail("a part is placed with either 'at' or 'on', not both", head, p("on"),
-                     "use on: <part>.<anchor> with offset: [...] to shift it")
-        offset = self.vec3(e["offset"], head, p("offset"), "offset") if "offset" in e else np.zeros(3)
-        attached_to = None
-        frame = np.eye(3)
-        if "on" in e:
-            j, uvw = self.target(e["on"], head, p("on"), name, i)
-            tgt = self.parts[j]
-            attached_to = tgt.name
-            follow = e.get("follow", True)
-            if not isinstance(follow, bool):
-                ctx.fail(f"follow must be true or false, got {follow!r}", head, p("follow"))
-            if follow:
-                frame = tgt.matrix
-            point = tgt.anchor(uvw)
-            default_align = -uvw
+        if span is not None:
+            a, b, attached_to = span
+            frame = np.eye(3)
+            matrix = clean(_align_y(b - a) @ r_own)
+            offset = self.vec3(e["offset"], head, p("offset"), "offset") if "offset" in e else np.zeros(3)
+            position = (a + b) / 2.0 + offset
         else:
-            if "follow" in e:
-                ctx.fail("'follow' only applies with 'on'", head, p("follow"), "remove follow or attach with on:")
-            point = self.vec3(e["at"], head, p("at"), "at") if "at" in e else np.zeros(3)
-            default_align = np.zeros(3)
-        if "align" in e:
-            try:
-                align = parse_anchor(e["align"])
-            except SightlineError as exc:
-                ctx.fail(f"unknown align anchor {e['align']!r}", head, p("align"), exc.hint or ANCHOR_HINT)
-        else:
-            align = default_align
-        matrix = clean(frame @ r_own)
-        position = point - matrix @ (align * half) + frame @ offset
+            if "at" in e and "on" in e:
+                ctx.fail("a part is placed with either 'at' or 'on', not both", head, p("on"),
+                         "use on: <part>.<anchor> with offset: [...] to shift it")
+            offset = self.vec3(e["offset"], head, p("offset"), "offset") if "offset" in e else np.zeros(3)
+            attached_to = None
+            frame = np.eye(3)
+            if "on" in e:
+                j, uvw = self.target(e["on"], head, p("on"), name, i)
+                tgt = self.parts[j]
+                attached_to = tgt.name
+                follow = e.get("follow", True)
+                if not isinstance(follow, bool):
+                    ctx.fail(f"follow must be true or false, got {follow!r}", head, p("follow"))
+                if follow:
+                    frame = tgt.matrix
+                point = tgt.anchor(uvw)
+                default_align = -uvw
+            else:
+                if "follow" in e:
+                    ctx.fail("'follow' only applies with 'on'", head, p("follow"), "remove follow or attach with on:")
+                point = self.vec3(e["at"], head, p("at"), "at") if "at" in e else np.zeros(3)
+                default_align = np.zeros(3)
+            if "align" in e:
+                try:
+                    align = parse_anchor(e["align"])
+                except SightlineError as exc:
+                    ctx.fail(f"unknown align anchor {e['align']!r}", head, p("align"), exc.hint or ANCHOR_HINT)
+            else:
+                align = default_align
+            matrix = clean(frame @ r_own)
+            position = point - matrix @ (align * half) + frame @ offset
 
         # Operation targets.
         cut_from: list[str] = []
@@ -376,6 +386,53 @@ class _Builder:
             self.twin_of[orig] = tname
             self.twin_of[tname] = orig
 
+    def between(self, e, raw_params: dict, shape, head, p, name, entry):
+        """`between: [A, B]`: the part's local +Y runs from point A to point B (part anchors or [x, y, z]).
+
+        The length comes from the distance: `height` for cylinder/cone/capsule, the middle of `size` for
+        box/ellipsoid/wedge, which is then written `size: [width, depth]`. Returns (A, B, the part A or B
+        is on) and fills the length into `raw_params`.
+        """
+        ctx = self.ctx
+        for key in ("at", "on", "align", "follow"):
+            if key in e:
+                ctx.fail(f"'{key}' does not combine with 'between'", head, p(key),
+                         "between puts the part's bottom on the first point and its top on the second")
+        ends = e["between"]
+        form = "between: [<part>.<anchor> or [x, y, z], <part>.<anchor> or [x, y, z]], e.g. [wing_lower.top, wing_upper.bottom]"
+        if not isinstance(ends, list) or len(ends) != 2:
+            ctx.fail(f"between needs two points, got {ends!r}", head, p("between"), form)
+        points, attached = [], None
+        for k, value in enumerate(ends):
+            path = p("between") + (k,)
+            if isinstance(value, str):
+                j, uvw = self.target(value, head, path, name, entry)
+                points.append(self.parts[j].anchor(uvw))
+                attached = attached or self.parts[j].name
+            else:
+                points.append(self.vec3(value, head, path, f"between[{k}]"))
+        a, b = points
+        length = float(np.linalg.norm(b - a))
+        if length < 1e-6:
+            ctx.fail("the two 'between' points are the same point", head, p("between"), form)
+        key = LENGTH_SHAPES.get(str(shape))
+        if key is None:
+            ctx.fail(f"between needs a shape with a length axis, not {shape!r}", head, p("between"),
+                     "use " + ", ".join(sorted(LENGTH_SHAPES)))
+        if key == "height":
+            if "height" in raw_params:
+                ctx.fail(f"between sets the height (the distance between the points, {length:.3f} m); remove height",
+                         head, p("height"))
+            raw_params["height"] = length
+        else:
+            size = raw_params.get("size")
+            if not (isinstance(size, list) and len(size) == 2):
+                ctx.fail(f"with between, size is [width, depth] (the length {length:.3f} m comes from the points), "
+                         f"got {size!r}", head, p("size") if "size" in raw_params else p("between"),
+                         "e.g. size: [0.09, 0.14]")
+            raw_params["size"] = [size[0], length, size[1]]
+        return a, b, attached
+
     def repeat(self, rep, head, path, name, entry, matrix, position, frame):
         ctx = self.ctx
         if not isinstance(rep, dict):
@@ -410,6 +467,18 @@ class _Builder:
             rot = axis_rotation(axis_w, k * 360.0 / count)
             out.append((n, clean(rot @ matrix), center + rot @ (position - center)))
         return out, names
+
+
+def _align_y(v: np.ndarray) -> np.ndarray:
+    """The smallest rotation taking local +Y onto the direction of v (keeps a strut's faces as upright as it can)."""
+    v = np.asarray(v, dtype=np.float64) / np.linalg.norm(v)
+    c = float(v[1])
+    if c > 1.0 - 1e-12:
+        return np.eye(3)
+    if c < -1.0 + 1e-12:
+        return np.diag([1.0, -1.0, -1.0])
+    axis = np.cross([0.0, 1.0, 0.0], v)
+    return axis_rotation(axis / np.linalg.norm(axis), float(np.degrees(np.arccos(np.clip(c, -1.0, 1.0)))))
 
 
 # ----------------------------------------------------------------------------- top level
@@ -456,9 +525,10 @@ def load_asset(path_or_name, root=None) -> Asset:
 
 
 def _resolve_file(value, asset_dir: pathlib.Path, root: pathlib.Path) -> pathlib.Path | list[pathlib.Path]:
-    """Existing path relative to the asset's directory, then root; else the list of tried paths."""
+    """Existing path relative to the asset's directory, then root, then root/assets (where `refs/` lives);
+    else the list of tried paths."""
     path = pathlib.Path(value)
-    candidates = [path] if path.is_absolute() else [asset_dir / path, root / path]
+    candidates = [path] if path.is_absolute() else [asset_dir / path, root / path, root / "assets" / path]
     for cand in candidates:
         if cand.is_file():
             return cand.resolve()
@@ -517,7 +587,12 @@ def _parse_references(ctx: _Ctx, value, asset_dir, root) -> list[ReferenceSpec]:
                 ctx.fail(f"mask image not found: {mask}", head, path + ("mask",),
                          "looked in: " + ", ".join(c.as_posix() for c in found_mask))
             mask = found_mask
-        refs.append(ReferenceSpec(image=found, view=view, height=None if height is None else float(height), mask=mask))
+        lighting = e.get("lighting", "auto")
+        if lighting not in ("auto", "lit", "flat"):
+            ctx.fail(f"lighting must be auto, lit or flat, got {lighting!r}", head, path + ("lighting",),
+                     "lit = a shaded render or photo, flat = flat paint (concept art), auto = guess from the shading")
+        refs.append(ReferenceSpec(image=found, view=view, height=None if height is None else float(height), mask=mask,
+                                  lighting=lighting))
     return refs
 
 

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .camera import Camera, fixed_camera, make_cameras, view_basis
+from .camera import Camera, fixed_camera, make_cameras, parse_orbit, view_basis
 from .errors import SightlineError
 from .march import ViewBuffers, march, trace
 from .model import F32, Material, Part, Scene, make_part
@@ -46,6 +46,7 @@ SPEC_EXPONENT = 24.0
 AO_SAMPLES = 4
 AO_STRENGTH = 0.85
 INNER_LINE_ALPHA = 0.5  # part boundaries without a depth jump are drawn half strength
+SEAM_DEG = 8.0  # no inner line between same-material parts whose surfaces meet at less than this angle
 DEPTH_JUMP_PX = 4.0  # outline where depth jumps by more than this many pixels (SPEC: 4 mpp)
 UPSCALE_BELOW = 384  # images smaller than this on the long side are shown x2 (nearest neighbour)
 PART_MAP_MIN = 640  # labeled part maps are upscaled to at least this long side
@@ -451,10 +452,30 @@ class ViewRender:
         return Image.fromarray(np.dstack([self.rgb, alpha]), "RGBA")
 
 
-def _edges(part: np.ndarray, depth: np.ndarray, jump: float) -> tuple[np.ndarray, np.ndarray]:
+def depth_slopes(normal: np.ndarray, cam: Camera, hit: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Depth change (m) per pixel step along x and y that each pixel's own surface explains.
+
+    A plane seen at a grazing angle changes depth by mpp * |n . right| / |n . forward| per pixel:
+    below about 14 degrees that exceeds the 4-px depth-jump threshold, and every pixel of a wing seen
+    edge-on became an outline pixel. Capped at 50 px per step (|n . forward| >= 0.02).
+    """
+    n = normal.reshape(-1, 3).astype(np.float64)
+    facing = np.maximum(np.abs(n @ np.asarray(cam.forward, dtype=np.float64)), 0.02)
+    sx = cam.mpp * np.abs(n @ np.asarray(cam.right, dtype=np.float64)) / facing
+    sy = cam.mpp * np.abs(n @ np.asarray(cam.up, dtype=np.float64)) / facing
+    shape = hit.shape
+    return (np.where(hit, sx.reshape(shape), 0.0).astype(F32), np.where(hit, sy.reshape(shape), 0.0).astype(F32))
+
+
+def _edges(part: np.ndarray, depth: np.ndarray, jump: float, slopes=None, seam=None) -> tuple[np.ndarray, np.ndarray]:
     """(strong, soft) 1-px edge masks on the nearer side of each discontinuity.
 
-    strong: silhouette or depth jump > `jump`; soft: part boundary without a depth jump.
+    strong: silhouette or depth jump > `jump`; soft: part boundary without a depth jump. `slopes`
+    ((H, W) x and y depth change per pixel step from `depth_slopes`) raise the threshold by the
+    smaller of the two pixels' slopes: a grazing plane is continuous, while the edge of a part in
+    front of it still jumps (its own pixel has a small slope). `seam` = (surface id per part index,
+    normals (H, W, 3)): no soft line between two parts of one surface id whose normals agree within
+    SEAM_DEG (a construction seam on a continuous surface: blended members, coplanar panels).
     """
     hit = part >= 0
     strong = np.zeros(part.shape, dtype=bool)
@@ -462,12 +483,33 @@ def _edges(part: np.ndarray, depth: np.ndarray, jump: float) -> tuple[np.ndarray
     for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
         pn = _shift(part, dy, dx, -1)
         dn = _shift(depth, dy, dx, np.inf)
+        limit = jump
+        if slopes is not None:
+            sl = slopes[0] if dx else slopes[1]
+            limit = jump + np.minimum(sl, _shift(sl, dy, dx, 0.0))
         with np.errstate(invalid="ignore"):
             gap = np.abs(depth - dn)
-        is_jump = ~(gap <= jump)  # inf (neighbour empty) counts as a jump
+        is_jump = ~(gap <= limit)  # inf (neighbour empty) counts as a jump
         strong |= hit & is_jump & (depth < dn)
-        soft |= hit & (pn != part) & ~is_jump & (depth <= dn)
+        boundary = hit & (pn != part) & ~is_jump & (depth <= dn)
+        if seam is not None and boundary.any():
+            surface, normal = seam
+            same = (surface[part] == surface[pn]) & (pn >= 0)
+            same &= (normal * _shift(normal, dy, dx, 0.0)).sum(axis=-1) > np.cos(np.radians(SEAM_DEG))
+            boundary &= ~same
+        soft |= boundary
     return strong, soft & ~strong
+
+
+def seam_surfaces(scene: Scene) -> np.ndarray:
+    """Surface id per part index (+1 slot for -1): parts of one material share an id (helpers get their own),
+    so a soft line between them is drawn only where the surface turns (see _edges)."""
+    ids = np.full(len(scene.parts) + 1, -1, dtype=np.int64)
+    names: dict[str, int] = {}
+    for i, p in enumerate(scene.parts):
+        key = f"helper:{i}" if p.helper else str(p.material)
+        ids[i] = names.setdefault(key, len(names))
+    return ids
 
 
 def _ambient_occlusion(scene: Scene, pts: np.ndarray, nrm: np.ndarray, step: float,
@@ -594,7 +636,8 @@ def render_view(scene: Scene, style, cam: Camera, ground: Ground | None = None, 
     if outline and width > 0:
         depth = np.where(asset_vis, a_t, np.inf).reshape(h, w)
         jump = DEPTH_JUMP_PX * mpp
-        strong, soft = _edges(part_vis, depth, jump)
+        strong, soft = _edges(part_vis, depth, jump, depth_slopes(normal, cam, asset_vis.reshape(h, w)),
+                              (seam_surfaces(scene), normal.reshape(h, w, 3)))
         strong = _thicken(strong, depth, part_vis >= 0, width - 1, jump)
         soft = _thicken(soft, depth, part_vis >= 0, width - 2, jump) & ~strong
         line = np.asarray(style.outline_color, dtype=F32)
@@ -645,8 +688,9 @@ def render_raw(asset, views=None, res=None, *, mpp: float | None = None, scale_f
     """Render views sharing one meters-per-pixel scale; no caption, no upscale.
 
     `res` = pixels on the long side of the largest view (default: the style's), or a fixed `mpp`.
-    `ground` / `shadows` default to the style. Other modules (inspect, reference) use this for raw
-    pixels: `ViewRender.part` and `.rgb` give the shaded color of every visible part.
+    `ground` / `shadows` default to the style. Views from below the ground (orbit elevation < 0) leave
+    the slab out, which would hide the asset's underside. Other modules (inspect, reference) use this
+    for raw pixels: `ViewRender.part` and `.rgb` give the shaded color of every visible part.
     """
     style = asset.style
     views = _views(views, style)
@@ -654,7 +698,14 @@ def render_raw(asset, views=None, res=None, *, mpp: float | None = None, scale_f
     lay = layout(asset, scale_figure, ground)
     cams = make_cameras(views, lay.frame_min, lay.frame_max, res=res, mpp=_mpp(mpp))
     ao_step = 0.012 * lay.size
-    return {v: render_view(lay.scene, style, cams[v], lay.ground, outline, shadows, ao_step) for v in views}
+    return {v: render_view(lay.scene, style, cams[v], None if _from_below(v) else lay.ground, outline, shadows, ao_step)
+            for v in views}
+
+
+def _from_below(view: str) -> bool:
+    """True for orbit views with a negative elevation (looking up at the asset)."""
+    orbit = parse_orbit(view)
+    return orbit is not None and orbit[1] < 0
 
 
 def present_view(asset, r: ViewRender, upscale: int | None = None, caption: bool = True) -> Image.Image:
@@ -782,7 +833,7 @@ def render_part_map(asset, view: str = "front", res=None, *, labels: bool = True
     ids = vb.part.astype(np.int64)
     rgb = lut[ids + 1]
     if outline:
-        strong, soft = _edges(vb.part, vb.depth, DEPTH_JUMP_PX * cam.mpp)
+        strong, soft = _edges(vb.part, vb.depth, DEPTH_JUMP_PX * cam.mpp, depth_slopes(vb.normal, cam, vb.hit))
         rgb[strong | soft] = (40, 40, 44)
     img = Image.fromarray(rgb, "RGB")
     k = upscale_factor((cam.width, cam.height), upscale)
@@ -910,12 +961,14 @@ def label_parts(img: Image.Image, ids: np.ndarray, parts: list[int], names: list
 # ----------------------------------------------------------------------------- files
 
 
-def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = True) -> dict[str, pathlib.Path]:
+def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = True,
+                  ground: bool | None = None) -> dict[str, pathlib.Path]:
     """Write `<view>.png` for every view (default: the style's; ':' in orbit names becomes '_'),
     `parts.png` (part map of the iso view, or front / the first view when iso is not rendered) and
     `sheet.png` (all of them under a header) into out_dir, creating it.
 
-    Returns {view: path, ..., "parts": path, "sheet": path}. scale_figure=False is `--no-human`.
+    Returns {view: path, ..., "parts": path, "sheet": path}. scale_figure=False is `--no-human`,
+    ground=False is `--no-ground` (default: the style's ground.show).
     """
     from .sheet import make_sheet
 
@@ -923,7 +976,7 @@ def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = 
     out.mkdir(parents=True, exist_ok=True)
     style = asset.style
     views = _views(views, style)
-    raws = render_raw(asset, views, res, scale_figure=scale_figure)
+    raws = render_raw(asset, views, res, scale_figure=scale_figure, ground=ground)
     images = {v: present_view(asset, r) for v, r in raws.items()}
     map_view = "iso" if "iso" in views else ("front" if "front" in views else views[0])
     part_map = render_part_map(asset, map_view, res)

@@ -72,6 +72,10 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
    The silhouette grid (`#` filled) has meter labels on rows and columns; the width profile gives
    the left/right edge of every 10% band; colors come with the nearest style material.
    A `low` mask confidence means the background is busy: ask for a cut-out PNG first.
+   Read the `LIGHTING` line: in a **lit** picture (a shaded render or photo) the colours are the
+   shading, not the paint — white wings in a dim render measured #555a58 and their "nearest material"
+   was iron. Choose materials by what the parts are (canvas wings, wooden struts), keep the picture's
+   light-to-dark order, and record the designer's answer as `lighting: lit|flat` in the reference.
 2. **Ask the `unknowns`** in one batch, adding your own (polygon budget, which details matter at
    gameplay distance). Each comes with a default you will use if nobody answers.
 3. **Block out** following the grid and the width profile: one part per band of the profile
@@ -91,11 +95,24 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
    Here `band_3` is a 1.6 m-radius cylinder where the picture tapers to 1.0 m: change its
    `radius`/`top_radius`. Open `out/<asset>/match_0.png` (picture | model | overlay: grey both, red
    model only, blue picture only | part names over the picture).
+   - A region marked `thin detail missing: strokes ~0.03 m wide (wire, rod, pole?)` is wires or rods
+     the model skips: it says nothing about the size of the part next to it. Add a thin part (a
+     `between:` cylinder) if it matters, or leave it and raise `max_missing` a little — thin details
+     count with their real area at every `res`.
+   - A width verdict `ok within 0.07 m up/down (an edge runs along the band border)` means the
+     outline matches once an edge moves a few cm vertically: no width change is needed; look at the
+     height of that edge instead.
+   - `ALIGN` puts the picture's bottom on the ground line in front/side views. A `! below the ground:
+     skid 0.04 m` line names parts poking under y = 0; they do not shift the picture, but fix them
+     (`inspect` GROUND).
+   - IoU and missing hold within about ±0.01 from res 192 to 1024 (they are area shares of the
+     exact silhouettes), so `res` in `matches_reference` is for speed or detail, not for luck.
    - Without `height`, the picture is scaled to the model's height: if the model lacks its topmost
      part, everything looks too small. Fix big regions **top first**, or give `--height`.
-   - For flat-color concept art use the `reference` column as the base color; the `suggested`
-     column compensates lighting and is for lit photos. Thin parts (railings, bars) pick up their
-     neighbours' colors there — ignore their rows.
+   - `suggested` in the color table is the picture's colour for flat paint, and for a lit picture the
+     base corrected by that part's light *relative to the other parts* (the picture's overall light
+     cancels out): only a part that differs from the rest gets a different colour. Thin parts
+     (railings, bars) pick up their neighbours' colors there — ignore their rows.
    - Unknown camera angle: `sightline match <asset> --fit-view` tries 121 angles and matches from
      the best. For round objects (towers, trees) many angles tie; keep `front` if the picture is an
      elevation.
@@ -109,8 +126,8 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
    FINDINGS largest first, split the parts SPLITS names, and watch `CLASSES` and `DIVISIONS` rise.
    Use `sightline structure refs/picture.png --height M` before building: its region list (ids,
    sizes and positions in meters, left/right pairs, a relief guess, every light) is the parts list
-   of the concept. `assets/robot.yaml` was rebuilt this way: classes 61% -> 69%, disagreeing regions
-   25 -> 8, at the same IoU.
+   of the concept. `assets/robot.yaml` was rebuilt this way: classes 60% -> 67%, disagreeing regions
+   27 -> 11, agreeing 35 -> 50, at the same IoU.
    - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
      into `refs/` (save as RGBA PNG), or the background turns black.
    - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and
@@ -133,7 +150,8 @@ Ask once, briefly, with defaults — the designer should be able to answer "ok" 
 > Before I build the lighthouse, five quick questions (my default in brackets):
 > 1. The picture shows only the front. Depth and back? [round tower, same from all sides]
 > 2. Height? [11.9 m, matching the door at 2.4 m]
-> 3. Are the colors flat paint? [yes: picture colors become the base colors]
+> 3. Are the colors flat paint? [yes: picture colors become the base colors; for a lit render:
+>    materials by what the parts are, light-to-dark as in the picture]
 > 4. Which details must read at gameplay distance? [bands, lantern, dome; railing optional]
 > 5. Budget? [under 60 parts; glb for Godot]
 
@@ -147,13 +165,13 @@ smooth), the polygon/part budget, the target engine.
 
 | section | use it to |
 |---|---|
-| `SIZE`, `GROUND`, `MASS` | real dimensions, "x human height", floating/sinking amounts, center of mass and stability margin |
+| `SIZE`, `GROUND`, `MASS` | real dimensions, "x human height", floating/sinking amounts, center of mass, stability margin and the parts that touch the ground (`ground contacts:`) |
 | `PARTS` | one row per part: center and size in m, share of volume, what it is attached to, **visible %** per view, lit color |
 | `CONTACTS`, `FLOATING` | what touches/overlaps (with shared m³); floating pieces with the gap, side and the nearest anchor |
 | `CUTS` | removed volume and visibility of each cut (a door that cuts nothing is a bug) |
 | `COLORS`, `CONTRAST` | material shares in iso and WCAG contrast of neighbouring parts |
 | `SILHOUETTE` | letter grids per view with meter labels; each part keeps its letter in every view |
-| `READABILITY` | what survives at 32 and 16 px (icons, far cameras) |
+| `READABILITY` | what survives at 32 and 16 px in front and iso (icons, far cameras) |
 | `WARNINGS` | short sentences with a fix, e.g. `ball floats 0.50 m above block — attach it with on: block.top or move it 0.50 m down` (a diagonal gap gets the whole move, `move it 1.33 m left (-x) and 0.60 m down`) |
 
 How far to trust the numbers:
@@ -162,9 +180,15 @@ How far to trust the numbers:
   upper bound accurate to one voxel cell, shown as `voxel cell` in `COUNTS`).
 - **Visible %** is measured at 128 px on the part's footprint shrunk by one pixel (silhouettes are
   up to half a pixel wider per edge), so a panel set into an opening reads its true share; parts
-  behind many thin parts (bars, railings) can still read low. Parts only on the back read 0% in every
-  report view and trigger an "under 30% visible" warning — expected for a back rail; check
-  `view: back` if it matters.
+  behind many thin parts (bars, railings) can still read low; parts under 40 px are measured on a
+  finer grid. Parts only on the back read 0% in every report view and trigger an "under 30%
+  visible" warning — expected for a back rail; check `view: back` if it matters. Tag a part that is
+  meant to be out of sight (an engine inside a cowling, a floor under a carpet) `tags: [hidden]`
+  to silence its warning.
+- **Stability** uses where the parts really touch the ground (within 2 cm of y = 0, on the exact
+  shapes): a round tyre or a 3 cm skid counts at any voxel size. An `unstable` warning names the
+  contacts and the side the center of mass is on, e.g. `1.40 m behind (-z) the ground contacts
+  (wheel_l, wheel_r)` — add the missing support (a tail skid) there.
 - **Lit colors and contrast** are a Lambert proxy without patterns or outlines; they read darker
   than the PNG. Same-material pairs are marked `=`. Use the warning as a hint and the PNG as the
   judge.
@@ -208,6 +232,12 @@ constraint (`ratio: {a: roof.height, b: total.height, range: [0.25, 0.35], why: 
   line and the `sinks ... below the ground` warning catch it.
 - `follow: false` keeps a part upright in the world when its target is rotated (a sword in a
   hand whose arm swings).
+- Struts, braces and wires between two parts: `between: [lower.top_left, "upper@[-0.6, -1, 0]"]`
+  with `size: [w, d]` (box) or `radius` (cylinder) puts the part from one point to the other — no
+  angles or lengths to compute, and it follows when either end moves.
+- Decals (roundels, emblems, windows painted on a face) must stand about 0.1 render pixel proud of
+  the face (5 mm for a 10 m asset at 256 px); flush ones lose the tie to the part defined first.
+- Views from below (`orbit:30:-20`) draw no ground slab; `render --no-ground` drops it anywhere.
 - `mirror: x` plus `_l`/`_r` names builds both sides from one entry; attach children to the `_l`
   part and mirror them too — their twins land on the `_r` parts.
 - Cuts are invisible tools: name them after the hole (`door`, `window`) and check them with

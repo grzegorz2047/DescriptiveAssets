@@ -16,6 +16,8 @@ from .camera import Camera
 from .model import F32, Group, Scene
 
 STEP = 0.9  # sphere-tracing step factor
+REFINE_EPS = 0.05  # near-tie refinement: hit threshold as a share of the coarse one (decals 1-2 cm proud)
+REFINE_STEPS = 24
 
 
 @dataclass(eq=False)
@@ -104,7 +106,71 @@ def _trace_groups(scene: Scene, o3: np.ndarray, d3: np.ndarray, t_max, eps: floa
                 idx, t, stop, o = idx[alive], t[alive], stop[alive], o[:, alive]
                 if not shared_dir:
                     d = d[:, alive]
+    _refine(scene, o3, d3, best_t, best_g, eps, groups, cull, shared_dir, slabs)
     return best_t, best_g
+
+
+def _refine(scene: Scene, o3: np.ndarray, d3: np.ndarray, best_t: np.ndarray, best_g: np.ndarray, eps: float,
+            groups: list[Group], cull: float, shared_dir: bool, slabs) -> None:
+    """Settle near-ties in place: where two or more groups lie within 2 eps of a hit, re-trace each of
+    them from just before the hit with a hit threshold of REFINE_EPS * eps and keep the first.
+
+    The coarse hit threshold (half a pixel in march) makes whichever group's steps cross it first win
+    when two surfaces are closer than that: a disc 1-2 cm proud of a wing rendered as a crescent and
+    measured 0% visible. Rays near only one group keep their hit, so silhouettes do not change.
+    """
+    hit_idx = np.flatnonzero(best_g >= 0)
+    if hit_idx.size == 0 or len(slabs) < 2:
+        return
+    d_hit = d3 if shared_dir else d3[:, hit_idx]
+    p = o3[:, hit_idx] + d_hit * best_t[hit_idx]
+    t_hit = best_t[hit_idx]
+    near_count = np.zeros(hit_idx.size, dtype=np.int32)
+    near: list[tuple[int, np.ndarray]] = []
+    pad = F32(2.0 * eps)
+    for _, gi, t_near, t_far, enter in sorted(slabs, key=lambda sl: sl[1]):
+        # The slabs are the group AABBs grown by 2 eps: a hit point within 2 eps of the box lies on the
+        # ray's stretch through the grown box.
+        sel = np.flatnonzero(enter[hit_idx] & (t_near[hit_idx] <= t_hit + pad) & (t_far[hit_idx] >= t_hit - pad))
+        if sel.size == 0:
+            continue
+        sel = sel[scene.group_dist3(groups[gi], np.ascontiguousarray(p[:, sel]), cull) < 2.0 * eps]
+        if sel.size:
+            near.append((gi, sel))
+            near_count[sel] += 1
+    tie = near_count >= 2
+    if not tie.any():
+        return
+    fine = REFINE_EPS * eps
+    new_t = np.full(hit_idx.size, np.inf, dtype=F32)
+    new_g = np.full(hit_idx.size, -1, dtype=np.int32)
+    for gi, sel in near:
+        sel = sel[tie[sel]]
+        if sel.size == 0:
+            continue
+        rays = hit_idx[sel]
+        t = (best_t[rays] - F32(2.0 * eps)).astype(F32)
+        stop = t + F32(6.0 * eps)
+        o = o3[:, rays]
+        d = d3 if shared_dir else d3[:, rays]
+        found = np.full(sel.size, np.inf, dtype=F32)
+        live = np.arange(sel.size)
+        for _ in range(REFINE_STEPS):
+            dist = scene.group_dist3(groups[gi], o[:, live] + (d if shared_dir else d[:, live]) * t[live], cull)
+            done = dist < fine
+            found[live[done]] = t[live[done]]
+            t[live] += F32(STEP) * dist
+            live = live[~done & (t[live] <= stop[live])]
+            if live.size == 0:
+                break
+        # Coplanar faces tie within the fine threshold: the earlier group keeps them, so overlapping
+        # panels show one clean boundary instead of a scribble of alternating pixels.
+        better = found < new_t[sel] - F32(2.0 * fine)
+        new_t[sel[better]] = found[better]
+        new_g[sel[better]] = gi
+    ok = np.flatnonzero(tie & (new_g >= 0))
+    best_t[hit_idx[ok]] = new_t[ok]
+    best_g[hit_idx[ok]] = new_g[ok]
 
 
 def _as3(a) -> np.ndarray:

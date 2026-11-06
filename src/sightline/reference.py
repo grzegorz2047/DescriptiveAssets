@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from .camera import Camera, make_cameras, orbit_view, parse_orbit, view_basis
 from .errors import SightlineError
-from .march import ViewBuffers, march
+from .march import ViewBuffers, march, trace
 
 __all__ = [
     "analyze_reference",
@@ -51,6 +51,8 @@ MAX_SIDE = 1600  # larger images are box-reduced by an integer factor before ana
 MIN_COMPONENT = 0.005  # share of the image area a mask component needs to be kept
 MIN_REGION = 0.01  # share of the reference area a missing/extra region needs to be listed
 MIN_REGION_PX = 1.5  # ... and its mean thickness in grid px (thinner = edge noise from the half-pixel dilation)
+BAND_SLACK = 0.02  # width-profile verdicts must hold with band borders moved by this share of the height (>= 1.5 px)
+THIN_REGION_PX = 4  # a region of strokes up to this many grid px wide is a thin detail (wires), not a size error
 BORDER_PX = 3  # border width used to estimate the background color
 SPECK_NEAR_PX = 8  # dropped specks this close to the object are edge noise (JPEG blocks are 8 px)...
 SPECK_TINY = 0.0005  # ... and so are specks under this share of the image area
@@ -58,10 +60,16 @@ KMEANS_K = 6
 KMEANS_ITERS = 8
 KMEANS_SAMPLE = 60000
 THIN_MIN_PX = 10  # thin-detail components smaller than this are edge noise
+LIGHTING = ("auto", "lit", "flat")
+LIT_SPREAD = 4.0  # lit: object pixels lie this far (median RGB distance, 0..255) from their colour cluster...
+LIT_SMOOTH = 0.2  # ... and this share of neighbouring interior pixels changes gently (shading, not flat paint)
 FIT_RES = 64
 FIT_AZIMUTHS = tuple(range(0, 360, 15))
 FIT_ELEVATIONS = (0, 15, 30, 45, 60)
 SHIFT_SEARCH = 0.25  # horizontal alignment search, share of the larger silhouette width
+COVER_SAMPLES, COVER_STEP = 34, 21  # Fibonacci lattice of sub-samples per pixel on the model's silhouette edge:
+# every sample has its own row and column offset, so straight edges resolve to 1/34 px
+EXACT_EPS = 0.005  # hit threshold of those sub-samples in pixels (the march's 0.5 px widens every edge)
 
 _AXIS_ALIASES = {(0, 0): "front", (90, 0): "right", (180, 0): "back", (270, 0): "left", (45, 30): "iso"}
 
@@ -572,6 +580,39 @@ def _thin_details(mask: np.ndarray, frame: _Frame) -> list[dict]:
     return out[:5]
 
 
+def _lighting(rgb: np.ndarray, mask: np.ndarray, given: str | None = None) -> dict:
+    """Is the picture lit (a shaded render or photo) or flat paint (concept art)?
+
+    Shading spreads every paint over a range of tones and changes them gently from pixel to pixel;
+    flat paint keeps a region one colour (JPEG noise moves it by a step or two). So a picture is lit
+    when the object's pixels lie on median >= LIT_SPREAD from their k-means colour and >= LIT_SMOOTH
+    of the neighbouring interior pixel pairs differ by 0.5..8 luminance steps. `given` ("lit"/"flat",
+    the reference's `lighting:` key) overrides the guess; the measurements are reported either way.
+    """
+    lum = rgb.astype(np.float64) @ np.array([0.2126, 0.7152, 0.0722])
+    inner = _erode(_erode(mask))
+    steps = [np.abs(lum[:, 1:] - lum[:, :-1])[inner[:, 1:] & inner[:, :-1]],
+             np.abs(lum[1:, :] - lum[:-1, :])[inner[1:, :] & inner[:-1, :]]]
+    d = np.concatenate(steps)
+    smooth = float(np.mean((d > 0.5) & (d <= 8.0))) if d.size else 0.0
+    pixels = rgb[mask]
+    step = max(1, math.ceil(len(pixels) / KMEANS_SAMPLE))
+    sample = pixels[::step].astype(np.float64)
+    centers = _kmeans(pixels)
+    dist = np.sqrt(((sample[:, None, :] - centers[None, :, :]) ** 2).sum(axis=-1)).min(axis=1)
+    spread = float(np.median(dist)) if dist.size else 0.0
+    obj = float(np.median(lum[mask]))
+    bg = float(np.median(lum[~mask])) if (~mask).any() else None
+    guess = "lit" if spread >= LIT_SPREAD and smooth >= LIT_SMOOTH else "flat"
+    mode = given if given in ("lit", "flat") else guess
+    evidence = (f"{smooth:.0%} of neighbouring pixels change gently, colours spread {spread:.1f} around their "
+                f"clusters" + (f"; the object (luminance {obj:.0f}) is darker than the background ({bg:.0f})"
+                               if bg is not None and obj < bg - 10 else ""))
+    return {"mode": mode, "source": "given" if given in ("lit", "flat") else "auto", "guess": guess,
+            "smooth": round(smooth, 3), "spread": round(spread, 1), "object_luminance": round(obj, 1),
+            "background_luminance": None if bg is None else round(bg, 1), "evidence": evidence}
+
+
 _HIDDEN = {
     "front": ("front", "depth (front to back)", "back and sides"),
     "back": ("back", "depth (front to back)", "front and sides"),
@@ -633,16 +674,30 @@ def _unknowns(rep: dict, view: str, model_height: float | None = None) -> list[d
                                 "Are they real parts (pole, rope, antenna), and do they matter at gameplay distance?",
                     "default": "skip them in the blockout; add thin parts (>= 0.05 m) later if they matter"})
     colors = rep["colors"][:4]
+    light = rep.get("lighting") or {"mode": "flat", "source": "auto", "evidence": ""}
     if colors:
         listing = ", ".join(f"{c['hex']} ({c['share']:.0%})" + (f" ~ {c['nearest_material']}" if c["nearest_material"] else "")
                             for c in colors)
-        out.append({"topic": "materials",
-                    "question": f"Which materials are the main colours: {listing}? Are the colours flat paint or lit (with shading)?",
-                    "default": "the nearest style materials listed; flat paint, so the picture colours are the base colours"})
+        if light["mode"] == "lit":
+            seen = "is lit" if light["source"] == "given" else f"looks lit ({light['evidence']})"
+            out.append({"topic": "materials",
+                        "question": f"The picture {seen}, so its main colours are shaded, not the paint: {listing}. "
+                                    "Which materials are they?",
+                        "default": "lit: choose each part's material by what it is and keep the picture's light-to-dark "
+                                   "order; the nearest materials listed match the shaded colours and are often too dark; "
+                                   "`sightline match` suggests base colours corrected for the picture's overall light"})
+        elif light["source"] == "given":
+            out.append({"topic": "materials", "question": f"Which materials are the main colours: {listing}?",
+                        "default": "the nearest style materials listed (flat paint: the picture colours are the base colours)"})
+        else:
+            out.append({"topic": "materials",
+                        "question": f"The picture looks like flat paint ({light['evidence']}). Which materials are the "
+                                    f"main colours: {listing}? Are they flat paint or lit (with shading)?",
+                        "default": "the nearest style materials listed; flat paint, so the picture colours are the base colours"})
     return out
 
 
-def _analyze(image_path, view: str = "front", height=None, mask=None, style=None, root=None) -> _Ref:
+def _analyze(image_path, view: str = "front", height=None, mask=None, style=None, root=None, lighting=None) -> _Ref:
     path = pathlib.Path(image_path)
     label = path.as_posix()
     if root is not None:
@@ -651,6 +706,9 @@ def _analyze(image_path, view: str = "front", height=None, mask=None, style=None
         except ValueError:
             pass
     view_basis(view)  # validates the view name (SightlineError with did_you_mean)
+    if lighting is not None and lighting not in LIGHTING:
+        raise SightlineError(f"lighting must be one of {', '.join(LIGHTING)}, got {lighting!r}", where=label,
+                             hint="lit = a shaded render or photo, flat = flat paint (concept art), auto = guess")
     if height is not None:
         if isinstance(height, bool) or not isinstance(height, (int, float)) or not math.isfinite(height) or height <= 0:
             raise SightlineError(f"height must be a number > 0 (meters), got {height!r}", where=label)
@@ -711,18 +769,20 @@ def _analyze(image_path, view: str = "front", height=None, mask=None, style=None
         "width_profile": profile,
         "colors": _colors(rgb, obj, (x0, y0, x1, y1), frame, style),
         "thin_details": _thin_details(obj, frame),
+        "lighting": _lighting(rgb, obj, lighting),
     }
     rep["unknowns"] = _unknowns(rep, view)
     return _Ref(path=path, label=label, rgb=rgb, alpha=alpha, mask=obj, bbox=(x0, y0, x1, y1), frame=frame, report=rep)
 
 
 def analyze_reference(image_path, view: str = "front", height: float | None = None, mask=None, *,
-                      style=None, root=None) -> dict:
+                      style=None, root=None, lighting: str | None = None) -> dict:
     """Measure a reference picture (SPEC 12.1): mask, scale, proportions, silhouette grid, width
     profile, dominant colours and the questions it cannot answer.
 
     `mask`: None/"auto" or a black/white PNG path. `style` (default: the default style) is used to
     name the nearest material of each colour; `root` only shortens the image path in the report.
+    `lighting`: "lit" or "flat" when known (the designer said so), else guessed from the shading.
     """
     if style is None:
         try:
@@ -731,7 +791,7 @@ def analyze_reference(image_path, view: str = "front", height: float | None = No
             style = load_style("default", root)
         except SightlineError:
             style = None
-    return _analyze(image_path, view, height, mask, style, root).report
+    return _analyze(image_path, view, height, mask, style, root, lighting).report
 
 
 # ----------------------------------------------------------------------------- text output
@@ -811,8 +871,16 @@ def format_reference(report: dict) -> str:
         yr = f"{_fmt(e['top'], unit)}..{_fmt(e['bottom'], unit)}"
         lines.append(f"  {e['band']:<9}{yr:>15}  {_fmt(e['left'], unit, True):>7} {_fmt(e['right'], unit, True):>7} "
                      f"{_fmt(e['width'], unit):>7}")
+    lg = r.get("lighting")
+    if lg:
+        how = "given" if lg["source"] == "given" else "guessed"
+        lines.append(f"LIGHTING   {lg['mode']} ({how}): {lg['evidence']}")
     lines.append("")
-    lines.append("COLORS  (k-means on the object's pixels; share of the object)")
+    if lg and lg["mode"] == "lit":
+        lines.append("COLORS  (k-means on the object's pixels; share of the object; lit picture: shaded colours, so the")
+        lines.append("        nearest materials match the shading, not the paint)")
+    else:
+        lines.append("COLORS  (k-means on the object's pixels; share of the object)")
     for c in r["colors"]:
         near = f"  ~ {c['nearest_material']} (dE {c['material_delta_e']:.0f})" if c["nearest_material"] else ""
         lines.append(f"  {c['hex']}  {_pct(c['share']):>4}  {c['where']:<34} center x {_fmt(c['center'][0], unit, True)}{u}, "
@@ -918,6 +986,52 @@ def _nearest_labels(labels: np.ndarray, need: np.ndarray) -> np.ndarray:
     return out
 
 
+def _open(m: np.ndarray, r: int) -> np.ndarray:
+    """Opening with a (2r+1) square: what is left after removing strokes narrower than 2r+1 px."""
+    out = m
+    for _ in range(r):
+        out = _erode(out)
+    for _ in range(r):
+        out = _dilate(out)
+    return out & m
+
+
+def _stroke_width(sel: np.ndarray) -> float:
+    """Mean stroke width in px: 2 x area / perimeter (pixel edges between the region and the rest)."""
+    m = np.pad(sel, 1)
+    edges = int((m[:, 1:] != m[:, :-1]).sum() + (m[1:, :] != m[:-1, :]).sum())
+    return 2.0 * int(sel.sum()) / max(1, edges)
+
+
+def _sub_extent(cov: np.ndarray, r0: int, r1: int) -> tuple[float, float] | None:
+    """Sub-pixel (left, right) of the columns covered >= 50% in some row of [r0, r1), None if none.
+
+    The end columns add their partial coverage: an edge 0.3 px into a column reads 0.3, also when the
+    column is under half covered (it then joins its covered neighbour).
+    """
+    if r1 <= r0:
+        return None
+    prof = cov[r0:r1].max(axis=0)
+    idx = np.flatnonzero(prof >= 0.5)
+    if not idx.size:
+        return None
+    a, b = int(idx[0]), int(idx[-1])
+    left = a + 1.0 - float(prof[a]) - (float(prof[a - 1]) if a > 0 else 0.0)
+    right = b + float(prof[b]) + (float(prof[b + 1]) if b + 1 < prof.size else 0.0)
+    return left, right
+
+
+def _gap(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Signed gap between two ranges (lo, hi): > 0 when a lies above b, < 0 below, 0 when they overlap."""
+    a_lo, a_hi = min(a), max(a)
+    b_lo, b_hi = min(b), max(b)
+    if a_lo > b_hi:
+        return a_lo - b_hi
+    if a_hi < b_lo:
+        return a_hi - b_lo
+    return 0.0
+
+
 def _majority(values: np.ndarray) -> int:
     vals, counts = np.unique(values[values >= 0], return_counts=True)
     return int(vals[np.argmax(counts)]) if vals.size else -1
@@ -933,11 +1047,51 @@ class _Match:
     lambert: np.ndarray  # (Hg, Wg, 3) 0..1
 
 
+def _model_coverage(scene, cam: Camera, hit: np.ndarray) -> np.ndarray:
+    """Share of each pixel the model covers (0..1), free of the march's half-pixel dilation.
+
+    Pixels two steps inside the (dilated) march hit mask count as covered and pixels outside its
+    3x3 dilation as empty; every pixel of the band between is sampled with COVER_SAMPLES rays on a
+    Fibonacci lattice at a hit threshold of EXACT_EPS px. So a 3 px thin wing covers 3 px, not 4,
+    and the coverage does not depend on where the pixel grid falls (the scene bounds frame the
+    camera): a 2.4 px wing reads 2.4 +- 0.03 px at any phase.
+    """
+    cov = _erode(_erode(hit)).astype(np.float32)
+    band = _dilate(hit) & (cov == 0)
+    rows, cols = np.nonzero(band)
+    n = rows.size
+    if n:
+        k = np.arange(COVER_SAMPLES)
+        ox = (k + 0.5) / COVER_SAMPLES
+        oy = ((k * COVER_STEP) % COVER_SAMPLES + 0.5) / COVER_SAMPLES
+        cc = (cols[:, None] + ox[None, :]).ravel()
+        rr = (rows[:, None] + oy[None, :]).ravel()
+        origins = (cam.pixel_to_world(cc, rr) - cam.forward * cam.near).astype(np.float32)
+        _, part = trace(scene, origins, cam.forward[None, :].astype(np.float32), np.inf, EXACT_EPS * cam.mpp)
+        cov[rows, cols] = (part >= 0).reshape(n, COVER_SAMPLES).mean(axis=1)
+    return cov
+
+
+def _cov_extent(cov: np.ndarray, axis: int) -> tuple[float, float]:
+    """Sub-pixel first and last edge of the covered area: rows (axis 0) or columns (axis 1).
+
+    The outermost row (column) covers its pixels by at most its largest coverage, measured from the
+    inner side: a flat edge 0.3 px into its row reads exactly 0.3.
+    """
+    prof = cov.max(axis=1 - axis)
+    idx = np.flatnonzero(prof > 0)
+    a, b = int(idx[0]), int(idx[-1])
+    if a == b:
+        return a + 0.5 - float(prof[a]) / 2.0, a + 0.5 + float(prof[a]) / 2.0
+    return a + 1.0 - float(prof[a]), b + float(prof[b])
+
+
 def _match(asset, index: int, res: int, view: str | None) -> _Match:
     spec = _reference_spec(asset, index)
     view = view or spec.view
     mask = None if str(spec.mask) == "auto" else spec.mask
-    ref = _analyze(spec.image, view, spec.height, mask, asset.style, asset.root)
+    lighting = getattr(spec, "lighting", "auto")
+    ref = _analyze(spec.image, view, spec.height, mask, asset.style, asset.root, None if lighting == "auto" else lighting)
     scene = asset.scene()
     lo, hi = scene.bounds(include_helpers=False)
     cam = make_cameras([view], lo, hi, res=res)[view]
@@ -946,9 +1100,35 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
         raise SightlineError(f"the model is not visible from view '{view}'", where=_asset_label(asset))
     mpp = cam.mpp
     H, W = vb.hit.shape
-    mx0, my0, mx1, my1 = _bbox(vb.hit)
+    mcov = _model_coverage(scene, cam, vb.hit)
+    if not mcov.any():  # thinner than the sub-samples everywhere: fall back to the dilated mask
+        mcov = vb.hit.astype(np.float32)
+    left, right = _cov_extent(mcov, 1)
+    top, sil_bottom = _cov_extent(mcov, 0)
+
+    # Vertical alignment: in upright views a grounded model stands on y = 0 like the picture's object,
+    # so the picture's bottom goes on the ground line, not on the lowest model pixel (a part poking
+    # 4 cm below the ground would shift the whole picture down). Elevated views and models that
+    # float clear of the ground use the silhouette's bottom.
+    c_v = float(np.dot(cam.center, cam.up))
+    align_on, below = "silhouette", []
+    mbot = sil_bottom
+    if float(cam.up[1]) > 1.0 - 1e-9:
+        base_y = max(float(lo[1]), 0.0)
+        base_row = H / 2.0 - (base_y - c_v) / mpp
+        if sil_bottom > base_row - 1.0:
+            mbot = base_row
+            align_on = "ground" if base_y == 0.0 else "bottom"
+            if sil_bottom > base_row + 0.25:
+                rows_below = np.arange(H)[:, None] + 0.5 > base_row + 0.25
+                seen = np.unique(vb.part[rows_below & vb.hit & (mcov > 0)])
+                for pi in seen[seen >= 0]:
+                    depth = base_y - float(scene.aabb(int(pi))[0][1])
+                    if depth > 0.0:
+                        below.append({"part": asset.parts[int(pi)].name, "depth": round(depth, 3)})
+                below.sort(key=lambda e: (-e["depth"], e["part"]))
     rx0, ry0, rx1, ry1 = ref.bbox
-    model_h_px, ref_h_px = my1 - my0, ry1 - ry0
+    model_h_px, ref_h_px = mbot - top, ry1 - ry0
 
     # Scale: model pixels per reference pixel.
     if spec.height is None:
@@ -957,39 +1137,41 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
         mode = "fit"
     else:
         # In an elevated view the picture's height includes the top; correct like the model's projection.
-        ratio = model_h_px * mpp / float(hi[1] - lo[1]) if _elevated(view) and hi[1] > lo[1] else 1.0
+        ratio = (sil_bottom - top) * mpp / float(hi[1] - lo[1]) if _elevated(view) and hi[1] > lo[1] else 1.0
         k = spec.height * ratio / ref_h_px / mpp
         mode = "height"
-    mcx, mbot = (mx0 + mx1) / 2.0, float(my1)
+    mcx = (left + right) / 2.0
     rcx, rbot = (rx0 + rx1) / 2.0, float(ry1)
     mapped = (mcx + (rx0 - rcx) * k, mbot + (ry0 - rbot) * k, mcx + (rx1 - rcx) * k, mbot)
-    shift_max = max(2, math.ceil(SHIFT_SEARCH * max(mx1 - mx0, mapped[2] - mapped[0])))
-    left = min(0, math.floor(mapped[0]) - shift_max - 2)
-    right = max(W, math.ceil(mapped[2]) + shift_max + 2)
-    top = min(0, math.floor(mapped[1]) - 2)
-    bottom = max(H, math.ceil(mapped[3]) + 2)
-    pl, pt = -left, -top
-    Wg, Hg = right - left, bottom - top
+    shift_max = max(2, math.ceil(SHIFT_SEARCH * max(right - left, mapped[2] - mapped[0])))
+    grid_left = min(0, math.floor(mapped[0]) - shift_max - 2)
+    grid_right = max(W, math.ceil(mapped[2]) + shift_max + 2)
+    grid_top = min(0, math.floor(mapped[1]) - 2)
+    grid_bottom = max(H, math.ceil(mapped[3]) + 2)
+    pl, pt = -grid_left, -grid_top
+    Wg, Hg = grid_right - grid_left, grid_bottom - grid_top
 
-    model = np.zeros((Hg, Wg), dtype=bool)
+    mc = np.zeros((Hg, Wg), dtype=np.float32)
     part = np.full((Hg, Wg), -1, dtype=np.int32)
     lam = np.empty((Hg, Wg, 3), dtype=np.float32)
     lam[:] = asset.style.background
-    model[pt:pt + H, pl:pl + W] = vb.hit
+    mc[pt:pt + H, pl:pl + W] = mcov
     part[pt:pt + H, pl:pl + W] = vb.part
     lam[pt:pt + H, pl:pl + W] = shade_lambert(asset, vb)
+    model = mc >= 0.5
+    if not model.any():
+        model = mc > 0
+    if (model & (part < 0)).any():  # coverage >= 0.5 with a missed center sample: borrow the nearest label
+        part = np.where(model, _nearest_labels(part, model), part)
 
     # Reference coverage on the grid, with room for the horizontal shift search.
     sat = _sat(ref.mask.astype(np.float32))
     y_edges = rbot + (np.arange(Hg + 1) - pt - mbot) / k
     ext_cols = np.arange(-shift_max, Wg + shift_max + 1)
     cover_ext = _box_cover(sat, y_edges, rcx + (ext_cols - pl - mcx) / k)
-    m_count = model.sum()
 
     def score(cov) -> float:
-        r = cov >= 0.5
-        inter = (r & model).sum()
-        return inter / max(1, r.sum() + m_count - inter)
+        return _soft_fit(cov, mc)[0]
 
     def cover_at(s: float) -> np.ndarray:  # reference moved right by s grid px
         return _box_cover(sat, y_edges, rcx + (np.arange(Wg + 1) - s - pl - mcx) / k)
@@ -1020,12 +1202,12 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
     cx0, cy0 = max(0, ux0 - margin), max(0, uy0 - margin)
     cx1, cy1 = min(Wg, ux1 + margin), min(Hg, uy1 + margin)
     crop = (slice(cy0, cy1), slice(cx0, cx1))
-    refm, model, part, lam, rgb, cover = refm[crop], model[crop], part[crop], lam[crop], rgb[crop], cover[crop]
+    refm, model, part, lam, rgb, cover, mc = (refm[crop], model[crop], part[crop], lam[crop], rgb[crop], cover[crop],
+                                              mc[crop])
     pl -= cx0
     pt -= cy0
     # Grid edge coordinate -> asset frame meters (h along camera.right, v along camera.up).
     c_h = float(np.dot(cam.center, cam.right))
-    c_v = float(np.dot(cam.center, cam.up))
 
     def h_of(gx):
         return c_h + (np.asarray(gx, dtype=np.float64) - pl - W / 2.0) * mpp
@@ -1035,38 +1217,53 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
 
     hax, vax = _axes(cam)
     h_name = hax[0] if hax[1] > 0 else f"-{hax[0]}"
-    # Sizes for the SIZE line, free of the grid: the model's exact AABB extent where the view axis is a
-    # world axis and it agrees with the silhouette (else the silhouette minus its 1 px of dilation), the
-    # reference's full-resolution mask bbox at the reference scale.
+    # Sizes for the SIZE line, free of the grid: the model's sub-pixel silhouette extent (the same at
+    # every res; its exact AABB extent along a world axis when the two agree within the sub-sample step),
+    # the reference's full-resolution mask bbox at the reference scale.
     sizes = []
-    for vec, px in ((cam.right, mx1 - mx0), (cam.up, my1 - my0)):
+    for vec, px in ((cam.right, right - left), (cam.up, sil_bottom - top)):
         exact = float(np.abs(vec) @ (hi - lo))
         aligned = float(np.max(np.abs(vec))) > 1.0 - 1e-9
-        sizes.append(exact if aligned and abs(exact / mpp - (px - 1)) <= 1.5 else max(px - 1, 1) * mpp)
+        sizes.append(exact if aligned and abs(exact / mpp - px) <= 0.15 else px * mpp)
     sizes += [(rx1 - rx0) * k * mpp, (ry1 - ry0) * k * mpp]
-    report = _match_report(asset, index, spec, view, ref, refm, model, part, lam, rgb, cover, mpp, h_of, v_of, hax, vax,
-                           h_name, mode, k, ratio, shift, res, sizes)
+    align = {"bottom": align_on, "base": round(c_v + (H / 2.0 - mbot) * mpp, 2), "below_ground": below}
+    report = _match_report(asset, index, spec, view, ref, refm, model, mc, part, lam, rgb, cover, mpp, h_of, v_of, hax,
+                           vax, h_name, mode, k, ratio, shift, res, sizes, align)
     return _Match(report, rgb, refm, model, part, lam)
 
 
-def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mpp, h_of, v_of, hax, vax, h_name,
-                  mode, k, ratio, shift, res, sizes) -> dict:
-    r_area, m_area = int(R.sum()), int(M.sum())
-    inter = int((R & M).sum())
-    union = int((R | M).sum())
-    iou = inter / max(1, union)
-    missing = int((R & ~M).sum()) / max(1, r_area)
-    extra = int((M & ~R).sum()) / max(1, m_area)
+def _soft_fit(cover: np.ndarray, mc: np.ndarray) -> tuple[float, float, float]:
+    """(IoU, missing, extra) of two coverage images (0..1 per pixel).
+
+    intersection = sum min(r, m), union = sum max(r, m). Where both edges cross a pixel from the same
+    side the partial coverages nest, so this is the area IoU, not a count of pixels over 50%: thin
+    wings and wires count with their real width at every resolution.
+    """
+    r_sum, m_sum = float(cover.sum()), float(mc.sum())
+    inter = float(np.minimum(cover, mc).sum())
+    iou = inter / max(1e-9, r_sum + m_sum - inter)
+    return iou, (r_sum - inter) / max(1e-9, r_sum), (m_sum - inter) / max(1e-9, m_sum)
+
+
+def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover, mpp, h_of, v_of, hax, vax, h_name,
+                  mode, k, ratio, shift, res, sizes, align) -> dict:
+    r_area = int(R.sum())
+    iou, missing, extra = _soft_fit(cover, mc)
     rb, mb = _bbox(R), _bbox(M)
     r_size = ((rb[2] - rb[0]) * mpp, (rb[3] - rb[1]) * mpp)  # on the grid (profile tolerance)
     m_size, size_ref = (sizes[0], sizes[1]), (sizes[2], sizes[3])  # exact-ish sizes (SIZE line, aspect)
 
-    # Width profile over the union's vertical extent.
+    # Width profile over the union's vertical extent. Edges are sub-pixel (coverage of the end columns).
+    # A verdict must survive moving the band's top and bottom by `slack` rows: a near-horizontal or
+    # sloped edge (a wing with dihedral) that crosses the band border 4 cm higher in the picture would
+    # otherwise read "model too narrow by 1.8 m" although a 4 cm vertical move fixes it.
     uy0, uy1 = min(rb[1], mb[1]), max(rb[3], mb[3])
     tol = max(1.5 * mpp, 0.01 * r_size[1])
+    slack = max(1, math.ceil(max(1.5 * mpp, BAND_SLACK * r_size[1]) / mpp - 1e-9))
+    n_rows = R.shape[0]
     profile = []
     for b, (r0, r1) in enumerate(_band_rows(uy0, uy1)):
-        e_r, e_m = _extent(R, r0, r1), _extent(M, r0, r1)
+        e_r, e_m = _sub_extent(cover, r0, r1), _sub_extent(mc, r0, r1)
         entry = {"band": f"{b * 100 // BANDS}-{(b + 1) * 100 // BANDS}%", "top": round(float(v_of(r0)), 2),
                  "bottom": round(float(v_of(r1)), 2), "reference": None, "model": None, "diff": None, "verdict": ""}
         for key, e in (("reference", e_r), ("model", e_m)):
@@ -1076,13 +1273,24 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
         if e_r and e_m:
             dl = (e_m[0] - e_r[0]) * mpp  # > 0: model's left edge further right
             dr = (e_m[1] - e_r[1]) * mpp  # > 0: model's right edge further right
-            dw = dr - dl
-            entry["diff"] = {"left": round(-dl, 2), "right": round(dr, 2), "width": round(dw, 2)}
+            entry["diff"] = {"left": round(-dl, 2), "right": round(dr, 2), "width": round(dr - dl, 2)}
+            wide = (max(0, r0 - slack), min(n_rows, r1 + slack))
+            mid = (r0 + r1) // 2
+            narrow = (r0 + slack, r1 - slack) if r1 - r0 > 2 * slack else (mid, mid + 1)
+            rw, rn = _sub_extent(cover, *wide), _sub_extent(cover, *narrow) or e_r
+            mw, mn = _sub_extent(mc, *wide), _sub_extent(mc, *narrow) or e_m
+            # Each edge ranges between its narrow-band and wide-band position; a difference counts only
+            # where the two ranges do not overlap.
+            rdl = _gap((mw[0], mn[0]), (rw[0], rn[0])) * mpp
+            rdr = _gap((mn[1], mw[1]), (rn[1], rw[1])) * mpp
+            dw = rdr - rdl
             if abs(dw) > tol:
                 word = "too wide" if dw > 0 else "too narrow"
-                entry["verdict"] = f"model {word} by {abs(dw):.2f} m (left {-dl:+.2f}, right {dr:+.2f})"
-            elif abs(dl) > tol and abs(dr) > tol and dl * dr > 0:
-                entry["verdict"] = f"model shifted {'right' if dl > 0 else 'left'} by {abs(dl + dr) / 2:.2f} m"
+                entry["verdict"] = f"model {word} by {abs(dw):.2f} m (left {-rdl:+.2f}, right {rdr:+.2f})"
+            elif abs(rdl) > tol and abs(rdr) > tol and rdl * rdr > 0:
+                entry["verdict"] = f"model shifted {'right' if rdl > 0 else 'left'} by {abs(rdl + rdr) / 2:.2f} m"
+            elif abs(dr - dl) > tol or (abs(dl) > tol and abs(dr) > tol and dl * dr > 0):
+                entry["verdict"] = f"ok within {slack * mpp:.2f} m up/down (an edge runs along the band border)"
             else:
                 entry["verdict"] = "ok"
         elif e_r:
@@ -1104,9 +1312,15 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
         # label without it, so a real region next to that edge does not merge with the whole fringe, then
         # give each kept region back its own band pixels.
         band = mk & _dilate(other)
-        labels, sizes = label_components(mk & ~band)
-        for j in np.flatnonzero(sizes >= max(1, MIN_REGION * r_area)):
-            sel = labels == j
+        core = mk & ~band
+        # Thin strokes (wires, rods) and thick areas are labelled apart, so a wire that touches a real gap
+        # neither inflates it nor gets blamed on the part it runs past.
+        thick = _open(core, (THIN_REGION_PX + 1) // 2)
+        found = []
+        for layer, thin in ((thick, False), (core & ~thick, True)):
+            labels, sizes = label_components(layer)
+            found += [(labels == j, thin) for j in np.flatnonzero(sizes >= max(1, MIN_REGION * r_area))]
+        for sel, thin in found:
             sel |= _dilate(sel) & band
             x0, y0, x1, y1 = _bbox(sel)
             n = int(sel.sum())
@@ -1129,7 +1343,14 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
                 side = "?"
             # Extent normal to that side: the most a part would have to grow or shrink there.
             depth = int(sel.sum(axis=0).max() if side in ("top", "bottom") else sel.sum(axis=1).max())
-            if kind == "missing":
+            width = _stroke_width(sel) * mpp
+            if thin and kind == "missing":
+                # Wires, rods and rigging: thin strokes say nothing about the size of the part they run past.
+                hint = (f"thin detail missing: strokes ~{width:.2f} m wide (wire, rod, pole?); add a thin part "
+                        "(>= 0.05 m) if it matters, no part needs resizing")
+            elif thin:
+                hint = f"thin model detail (~{width:.2f} m wide) not in the picture: `{name}`, check it is wanted"
+            elif kind == "missing":
                 hint = (f"`{name}` may be too small on the {side} by ~{depth * mpp:.2f} m" if sliver
                         else "a part is missing here (the picture has something the model lacks)")
             elif pi in part_px and n >= 0.6 * part_px[pi]:
@@ -1145,15 +1366,18 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
                 "size": [round((x1 - x0) * mpp, 2), round((y1 - y0) * mpp, 2)],
                 "thickness": round(thickness * mpp, 2),  # mean width across the region's long side
                 "depth": round(depth * mpp, 2),  # largest extent normal to the nearest part's side
+                "thin": bool(thin),  # made of strokes <= THIN_REGION_PX grid px wide (wires, rods)
+                "width": round(width, 3),  # mean stroke width: 2 x area / perimeter
                 "bbox": {hax[0]: _axis_range(float(h_of(x0)), float(h_of(x1)), hax),
                          vax[0]: _axis_range(float(v_of(y1)), float(v_of(y0)), vax)},
                 "near": name,
                 "hint": hint,
             })
-    regions.sort(key=lambda e: (-e["area"], e["kind"]))
+    regions.sort(key=lambda e: (e["thin"], -e["area"], e["kind"]))  # thin details last: fix the shapes first
 
     # Per-part colours: reference median vs flat Lambert render, over the part's interior pixels.
-    parts = []
+    lit = ref.report["lighting"]["mode"] == "lit"
+    parts, measured = [], []
     for i in sorted(visible, key=lambda i: (-part_px[i], i)):
         p = asset.parts[i]
         pix = part == i
@@ -1169,10 +1393,24 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
         entry["rendered"] = _hex(rendered)
         if use is valid:
             refc = np.median(rgb[valid], axis=0)
-            suggested = np.where(rendered > 1e-3, base * refc / np.maximum(rendered, 1e-3), refc)
+            measured.append((entry, base, rendered, refc))
             entry.update(reference=_hex(refc), delta_e=round(delta_e(rendered, refc), 1),
-                         delta_e_base=round(delta_e(base, refc), 1), suggested=_hex(np.clip(suggested, 0.0, 1.0)))
+                         delta_e_base=round(delta_e(base, refc), 1))
         parts.append(entry)
+    # Suggested base colours. Flat paint: the picture's colour is the paint. Lit: base x reference / rendered,
+    # divided by the picture's overall light (per channel, the median of that ratio over the parts), so the
+    # picture's exposure, light colour and direction cancel out and only parts that differ from the rest
+    # change (a dim render made every cream wing "#f2ffff" before).
+    exposure = None
+    if lit and measured:
+        ratios = np.array([np.where(rd > 1e-3, rc / np.maximum(rd, 1e-3), 1.0) for _, _, rd, rc in measured])
+        exposure = np.maximum(np.median(ratios, axis=0), 1e-3)
+    for entry, base, rendered, refc in measured:
+        if exposure is None:
+            suggested = refc
+        else:
+            suggested = np.where(rendered > 1e-3, base * refc / np.maximum(rendered, 1e-3) / exposure, refc)
+        entry["suggested"] = _hex(np.clip(suggested, 0.0, 1.0))
 
     # Diff grid over both silhouettes.
     ux0, uy0b, ux1, uy1b = _bbox(R | M)
@@ -1208,7 +1446,7 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
         "res": res,
         "scale": scale,
         "size": {"reference": [round(size_ref[0], 2), round(size_ref[1], 2)], "model": [round(m_size[0], 2), round(m_size[1], 2)]},
-        "align": {"shift": round(shift * mpp, 2)},
+        "align": {"shift": round(shift * mpp, 2), **align},
         "iou": round(iou, 3),
         "missing": round(missing, 3),
         "extra": round(extra, 3),
@@ -1219,6 +1457,8 @@ def _match_report(asset, index, spec, view, ref, R, M, part, lam, rgb, cover, mp
         "parts": parts,
         "grid": grid,
         "mask": {"source": ref_rep["mask"]["source"], "confidence": ref_rep["mask"]["confidence"]},
+        "lighting": {"mode": ref_rep["lighting"]["mode"], "source": ref_rep["lighting"]["source"],
+                     "exposure": None if exposure is None else [round(float(v), 3) for v in exposure]},
         "unknowns": unknowns,
         "images": {},
         "model_panel": None,
@@ -1270,7 +1510,13 @@ def format_match(report: dict) -> str:
     lines.append(f"FIT     IoU {r['iou']:.2f}   missing {_pct(r['missing'])} (reference not covered)   "
                  f"extra {_pct(r['extra'])} (model outside the reference)")
     lines.append(f"ASPECT  height/width reference {r['aspect']['reference']:.2f} vs model {r['aspect']['model']:.2f}")
-    lines.append(f"ALIGN   bottom edges; horizontal shift {r['align']['shift']:+.2f} m from the bbox centers (best IoU)")
+    al = r["align"]
+    on = {"ground": "on the ground line (y = 0.00)", "bottom": f"on the model's bottom (y = {al.get('base', 0):.2f})"}
+    bottom = on.get(al.get("bottom"), f"on the model silhouette's bottom ({v_name} {al.get('base', 0):.2f})")
+    lines.append(f"ALIGN   picture bottom {bottom}; horizontal shift {al['shift']:+.2f} m from the centers (best IoU)")
+    if al.get("below_ground"):
+        deep = ", ".join(f"{e['part']} {e['depth']:.2f} m" for e in al["below_ground"][:4])
+        lines.append(f"        ! below the ground: {deep} (not used to align; `sightline inspect` GROUND)")
     if r["mask"]["confidence"] != "high":
         lines.append(f"        ! reference outline confidence {r['mask']['confidence']}: trust only the large shapes")
     g = r["grid"]
@@ -1297,13 +1543,24 @@ def format_match(report: dict) -> str:
                      f"{at}, next to `{e['near']}` -> {e['hint']}")
     lines.append("")
     lines.append("PARTS  (median colours over each part; rendered = base x flat Lambert from the style light)")
-    lines.append(f"  {'part':<14}{'material':<12}{'base':<9}{'rendered':<10}{'reference':<11}{'dE':>5}{'dE base':>9}  suggested base")
+    pw = max([len("part")] + [len(e["part"]) for e in r["parts"]]) + 2  # long part names keep their own column
+    mw = max([len("material")] + [len(str(e["material"])) for e in r["parts"]]) + 2
+    lines.append(f"  {'part':<{pw}}{'material':<{mw}}{'base':<9}{'rendered':<10}{'reference':<11}{'dE':>5}{'dE base':>9}"
+                 "  suggested base")
     for e in r["parts"]:
         de = f"{e['delta_e']:.1f}" if e["delta_e"] is not None else "-"
         deb = f"{e['delta_e_base']:.1f}" if e["delta_e_base"] is not None else "-"
-        lines.append(f"  {e['part']:<14}{str(e['material']):<12}{e['base']:<9}{e['rendered']:<10}{(e['reference'] or '-'):<11}"
-                     f"{de:>5}{deb:>9}  {e['suggested'] or '- (not in the reference)'}")
-    lines.append("  (lit picture: use `suggested`; flat-colour concept art: use the `reference` colour as the base)")
+        lines.append(f"  {e['part']:<{pw}}{str(e['material']):<{mw}}{e['base']:<9}{e['rendered']:<10}"
+                     f"{(e['reference'] or '-'):<11}{de:>5}{deb:>9}  {e['suggested'] or '- (not in the reference)'}")
+    lg = r.get("lighting") or {"mode": "flat", "source": "auto", "exposure": None}
+    how = "given" if lg["source"] == "given" else "guessed; set reference lighting: lit|flat if wrong"
+    if lg["mode"] == "lit":
+        ex = " ".join(f"{v:.2f}" for v in lg["exposure"]) if lg["exposure"] else "-"
+        lines.append(f"  (picture lit ({how}): suggested = base x reference / rendered / the picture's overall light "
+                     f"[{ex}],")
+        lines.append("   so only parts that differ from the rest change)")
+    else:
+        lines.append(f"  (picture flat paint ({how}): suggested = the reference colour)")
     lines.append("")
     lines += _format_unknowns(r["unknowns"])
     if r["images"]:

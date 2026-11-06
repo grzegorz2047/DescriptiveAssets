@@ -160,10 +160,11 @@ parts:                         # required, ordered; references may only point to
     offset: [0.2, 0, -0.2]
     repeat: {count: 4, step: [0.85, 0, 0]}    # crenel_0 .. crenel_3
 reference:                     # optional, see section 12; one entry or a list
-  image: refs/watchtower.png   # relative to the asset file's directory, then root
+  image: refs/watchtower.png   # relative to the asset file's directory, then root, then root/assets
   view: front                  # front/back/left/right/top/iso or {azimuth: 30, elevation: 15}
   height: 8.0                  # optional real height in meters of the object in the image
   mask: auto                   # auto | path to a black/white mask png
+  lighting: auto               # auto | lit (shaded render, photo) | flat (flat paint); see 12.1
 checks:                        # optional, see section 7
   - grounded
   - connected
@@ -203,6 +204,14 @@ frustum with `top_radius > radius`.
   `top_front`→`bottom_back`, `@[0,1,1]`→`@[0,-1,-1]`, `center`→`center`) is placed on it.
 - `on:` always needs an anchor: `on: base` is an error with the hint `base.top`.
 - `offset: [dx, dy, dz]` — added after attachment.
+- `between: [A, B]` (instead of `at`/`on`/`align`/`follow`) — A and B are part anchors
+  (`<part>.<anchor>`, `<part>@[u, v, w]`) or world points `[x, y, z]`. The part's local +Y runs from A
+  to B (the smallest rotation from +Y; `rotate` is applied first, in the part's own frame, e.g. to spin
+  a box strut about its axis), its center is the midpoint (+ `offset`, world frame), and its length
+  is the distance: `height` for cylinder/cone/capsule (not given), the middle of `size` for
+  box/ellipsoid/wedge, which is written `size: [width, depth]`. Sphere and torus have no length axis
+  (error). `attached_to` is the part of A (else of B). Repeat and mirror apply as usual. For struts
+  and wires between two parts, without offline trigonometry.
 - `follow: true` (default with `on`) — the part inherits the target's orientation: its world matrix
   is `M_target @ R_own` and `offset` is expressed in the target's frame. `follow: false` → world
   frame. With `at`, rotation and offset are in the world frame.
@@ -242,7 +251,9 @@ Applied in this order after placement of the base part: repeat, then mirror.
 - `op: cut` — the part is subtracted, never rendered. `from: [names] | all` (default: the `on`
   target; error if neither). A cut applies to every listed solid part: `d = max(d_part, −d_cut)`.
   `all` = all earlier solid parts.
-- `tags: [...]` per part (free text, e.g. `door`, `walkable`).
+- `tags: [...]` per part (free text, e.g. `door`, `walkable`). The tag `hidden` says the part (or cut)
+  is expected out of sight (an interior or underside part): inspect gives it no low-visibility or
+  "vanishes at 32 px" warning.
 
 ### 4.5 Validation (loader)
 
@@ -332,6 +343,7 @@ class ReferenceSpec:             # parsed `reference:` entry
     view: str                    # a camera view name; {azimuth, elevation} -> camera.orbit_view(...)
     height: float | None
     mask: str | pathlib.Path     # "auto" or resolved path
+    lighting: str = "auto"       # "auto" | "lit" | "flat" (12.2a)
 
 @dataclass
 class Asset:
@@ -396,9 +408,17 @@ march/trace only, a cutter is ignored for points more than 4·mpp outside its AA
 the solid). The hit threshold stays `0.5·mpp` (lead decision), so every silhouette is up to half a
 pixel wider per edge: a 1 m box at 74 px reads about +4% in area, and every part is at least one
 pixel wide. Consumers compensate: inspect's readability box-filters a 256 px render, inspect's
-`visible` uses footprints shrunk by one pixel, reference matching ignores the 1-px fringe and regions
-thinner than 1.5 px, and tests model the area as (w/mpp + 1)(h/mpp + 1).
+`visible` uses footprints shrunk by one pixel, reference matching samples the model's exact coverage
+on the silhouette band (12.2a) and ignores regions thinner than 1.5 px, and tests model the area as
+(w/mpp + 1)(h/mpp + 1).
 Grazing rays that use up `max_steps` count as misses.
+Near-ties: where two or more groups lie within 2·eps of a ray's hit point, each of them is traced again
+from 2·eps before the hit with a threshold of 0.05·eps (24 steps at most, up to 4·eps past the hit) and
+the first fine hit wins; ties within the fine threshold go to the earlier group. Otherwise the group whose
+steps crossed the coarse threshold first won, so a disc 1–2 cm proud of a wing rendered as a crescent
+(and measured 0% visible) and coplanar overlaps alternated pixels. Rays near one group keep their coarse
+hit, so silhouettes keep the half-pixel threshold. The candidate groups come from the march's slab
+intervals; the pass costs about a quarter of the march on a 60-group asset.
 Coplanar cuts: where a cutter face lies on a face of its target, `max(d_part, -d_cut)` falls to 0 on
 the shared plane over the hole although no material is near (a "phantom" sheet: a notch flush with
 the wall top would render with a lid). A hit of a group with cutters, near a cutter, is therefore
@@ -438,10 +458,11 @@ Keys (the JSON schema; text formatting renders all of them):
 - `size`: `{width, height, depth, min:[x,y,z], max:[x,y,z], human_ratio}` from solid AABB union
   refined by occupancy (use the SDF-exact AABB of parts, not voxels).
 - `ground`: `{min_y, grounded: bool (|min_y| ≤ max(0.02, cell/2)), floats_by}`.
-- `mass`: `{volume, center:[x,y,z], stable: bool|None, support_margin}` — uniform density over
-  strict union occupancy; support = convex hull (xz) of occupied cells in the lowest layer touching
-  the ground; stable = COM xz inside the hull; margin = signed distance to the hull edge.
-  `None` if not grounded.
+- `mass`: `{volume, center:[x,y,z], stable: bool|None, support_margin, support, tips_toward}` —
+  uniform density over strict union occupancy; support polygon = convex hull (xz) of the ground
+  contacts (7.3); stable = COM xz inside the hull; margin = signed distance to the hull edge;
+  `support` = names of the parts that touch the ground; `tips_toward` = `+x`/`-x`/`+z`/`-z`, the side
+  of the support the COM lies on when unstable. `None` if not grounded.
 - `symmetry`: `{x: IoU, z: IoU}` of union occupancy mirrored across the AABB center planes.
 - `parts`: list of `{name, shape, material, center, size:[w,h,d] (world AABB), volume_share,
   attached_to, visible: {view: fraction}, tags}`. `visible[view]` = pixels where this part is the
@@ -462,6 +483,8 @@ Keys (the JSON schema; text formatting renders all of them):
   — part map downsampled to ≤ 32 columns with square cells in meters; each cell shows the letter of
   the part covering most of it, `.` empty; letters A–Z then a–z assigned by descending visible
   area. Rows carry meter labels in text output, and characters are space-separated.
+- `readability_views`: `{iso: {view, at_px}}` — the same for the iso view (a wing edge-on from the
+  front still reads from iso).
 - `readability`: `{view: "front", at_px: {32: {iou, parts_kept, parts_lost}, 16: {...}}}` — the
   silhouette rendered so the asset's longer image side is N px, upscaled back, IoU vs full res;
   a part is kept if it covers ≥ 4 px at that size.
@@ -494,7 +517,7 @@ text carry the same facts. `diff_reports(old, new) -> str` lists changed metrics
 | `readable_at: {px: 32, min_iou: 0.8, keep: [parts]}` | silhouette survives downscale; listed parts kept |
 | `distinct_from: {assets: [..], view: front, max_iou: 0.7}` | normalized silhouette IoU |
 | `max_parts: n`, `max_materials: n` | budgets |
-| `matches_reference: {index: 0, min_iou: 0.85, max_missing: 0.05}` | via `reference.match_asset`; missing = share of reference area not covered |
+| `matches_reference: {index: 0, min_iou: 0.85, max_missing: 0.05, res: 256}` | via `reference.match_asset` at `res`; missing = share of reference area not covered |
 
 Any entry may carry `why: "..."` (designer intent), printed on failure, inside its mapping or as a
 sibling key. Unknown check kinds and keys are SightlineErrors; all entries are validated before any
@@ -523,8 +546,17 @@ Report additions and rules beyond 7.1:
   phantom distance). If no part reaches the ground, the lowest piece is the
   base: a lone floating object is ungrounded but not "floating", so `connected` and `grounded` stay
   independent.
-- Stability: the support polygon is the convex hull of the cell corners in the lowest two occupied
-  layers; `support_margin` is the signed distance of the COM to its edge (positive inside).
+- Stability: the support polygon is the convex hull of the ground contacts found on the SDF
+  (`inspect.ground_contacts`): per solid, material below `base + 0.02 m` (`base` = 0, or the asset's
+  bottom when it floats within the grounded tolerance), searched coarse to fine from the voxel cell
+  down to 1 cm squares (a cell is dropped when the part's distance at its center exceeds the cell's
+  half-diagonal, a cell wholly in material adds its corners unrefined, the sheet of a coplanar cut
+  face is no contact). Round tyres and a 2 cm skid count at any voxel size (the old footprint from the
+  lowest two voxel layers missed them and called a biplane on wheels and a skid "1.1 m outside the
+  footprint"). Without any contact the lowest two voxel layers stand in. `support_margin` is the signed
+  distance of the COM to its edge (positive inside); the warning names the contact parts and the side:
+  `unstable: the center of mass (x 0.01, z 1.14) is 1.40 m behind (-z) the ground contacts (wheel_l,
+  wheel_r) — add a support under it or move mass over the contacts`.
 - `volume_share` = the part's strict voxel volume / union volume (overlaps make the sum exceed 1).
 - `cuts[].removed_volume`: midpoint sampling of the target primitives inside the cutter, 40 cells
   along the longest side of their AABB overlap (not the report grid). A cut that removes nothing is
@@ -538,7 +570,11 @@ Report additions and rules beyond 7.1:
   `x0`/`y0` are the left and bottom grid edges. The text adds a column ruler every 4 columns.
 - Readability: the N px silhouette is box-filtered from a 256 px render (a low pixel is on at ≥ 50%
   coverage), because the half-pixel hit threshold would keep every part at least one pixel wide.
-  Parts counted = those visible at full resolution; kept = owns ≥ 4 low pixels.
+  Parts counted = those visible at full resolution; kept = owns ≥ 4 low pixels. Front and iso are
+  reported; the "vanish at 32 px" warning lists parts lost in every one of them where they are seen
+  at all (and not tagged `hidden`).
+- Visibility of a part whose footprint is under 40 px is measured again over its window on a grid
+  4× finer (a 3 × 3 px part keeps one pixel after the erosion, which a propeller blade could cover).
 - Contrast uses the lit color `color × (ambient + (1 − ambient) × Lambert)` (no patterns, shadows
   or outlines); low-contrast warnings merge into one line and skip same-material pairs.
 - Warnings add `cut X removes nothing`, split ungrounded into "floats N m above" / "sinks N m below
@@ -558,7 +594,8 @@ Check defaults and forms: `visible` view `any`, min 0.5; `symmetric` axis x (x o
 `contrast` min 1.5 for **any** pair (computed from the reported lit colors); `readable_at` px 32,
 min_iou 0.8, keep [], optional `view` (default front; another px or view is computed on the fly);
 `distinct_from` view front, max_iou 0.7, `assets` a list or one name (resolved against `root`,
-default the asset's root); `matches_reference` index 0, min_iou 0.85, max_missing 0.05 —
+default the asset's root); `matches_reference` index 0, min_iou 0.85, max_missing 0.05, res 256
+(16..4096) —
 SightlineError at validation when the asset has no such reference; it calls
 `reference.match_asset(asset, index)` and reads `iou`/`missing` (fractions). `max_parts` /
 `max_materials` also accept `{max: n}`. `size`/`part_size` list dimensions in the order written; a
@@ -591,11 +628,17 @@ def sheet_many(assets, out_path, res=None, view="iso", *, root=None) -> Path
   on upward faces), exposure 1.2 with a soft shoulder above 0.8 for asset surfaces, and light
   normalized so a lit, unoccluded upward face shows the exact material (or ground) color. A cast
   shadow removes 60% of the direct light and is blurred (3×3 box, twice) on the ground only.
-- Ground: a finite **slab** (top face y = 0) over the asset + figure footprint, padded by
+- Ground (`render --no-ground` / `ground=False` leave it out; views from below, orbit elevation < 0,
+  never draw it): a finite **slab** (top face y = 0) over the asset + figure footprint, padded by
   max(0.25 m, 6% of the size), at least 1:2, 2% of the size thick, hit analytically by ray–box
   intersection, receiving shadows, with grid lines every `ground.grid` m (a darker line every 5 m).
   The cameras frame the whole tile; front/side views show it as a strip. Parts below y = 0 hide in
   the slab, so sinking is visible. Shadows falling off the tile are not drawn.
+- Outline thresholds: a depth jump is a gap above 4·mpp plus the smaller of the two pixels' own slope
+  term `mpp·|n·right| / max(|n·forward|, 0.02)` (`n·up` vertically): a surface seen at a grazing
+  angle (below ~14° it changes depth by more than 4 px per pixel) is continuous, while a part standing
+  in front of it keeps its line. No inner line between two parts of the same material whose normals
+  agree within 8° (blend members, coplanar panels: construction seams on a continuous surface).
 - Outline: silhouettes and depth jumps > 4·mpp in the full outline color; part boundaries without a
   depth jump at 50%. Width w grows **inward** on the nearer surface, so a w-px line is exactly w px,
   silhouettes keep their true size and coverage equals the asset pixels.
@@ -626,6 +669,11 @@ def sheet_many(assets, out_path, res=None, view="iso", *, root=None) -> Path
   the surface (no flicker on cell borders) and fade to their mean color under a period of ~3 px.
 - No anti-aliasing (one sample per pixel, measurable pixel counts). Shadows on asset surfaces are
   hard; the ground slab does not block light.
+- Known limits. Decals: a disc must stand at least ~0.1 px of the render proud of the face under it
+  (5 mm for a 10 m asset at 256 px, 2 cm at 64 px); closer surfaces tie and the part defined first
+  wins, so a flush decal can vanish. Seams: an inner line is still drawn where same-material parts
+  meet at more than 8° (a real crease) and at material changes. Grazing ground: grid lines alias into
+  a stipple below ~10° elevation (the slab only; `--no-ground` removes it).
 
 ## 9. Export (`export.py`)
 
@@ -856,15 +904,17 @@ Implementation notes (levels):
 
 ```
 sightline new <asset> [--style S] [--brief TEXT] [--force]   # template; the brief's sentences become TODO checks
-sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human]
+sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human] [--no-ground]
 sightline inspect <asset> [--json] [--res N] [--compare A[,B]]
 sightline check [<asset>...] [--json]                    # no args: all assets; exit 1 on FAIL, 2 on error
 sightline diff <asset> [--against REV|path]              # default: git HEAD version of the file
 sightline sheet [<asset>...] [--out PATH] [--res N] [--view V]   # library sheet at shared scale
 sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-cells N]
                  [--quality full|high|medium|low] [--max-tris N] [--out PATH]
-sightline ref <image> [--view V] [--height M] [--mask PATH] [--json]   # analyze a reference alone
+sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit|flat] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
+sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--out DIR] [--json]
+sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
 sightline styles [name]                                   # styles, materials, palettes
 sightline shapes                                          # shape and anchor reference
@@ -901,6 +951,8 @@ UTF-8 (reports contain → · — °, which the Windows console code page cannot
   with obj writes one `o` object.
 - `match --fit-view` prints `format_fit` and matches from the best view. `--res` of render, sheet,
   inspect and match must be an integer from 16 to 4096 (SightlineError otherwise).
+- `new`'s size hint names the dimensions a sentence measures (`span`/`wide` → width, `tall`/`high` →
+  height, `long`/`deep` → depth; height when none is named).
 - `new` lists every matching check kind per brief sentence (`matches_reference` first), adds a
   commented `reference:` entry when the brief mentions a picture (the `refs/...` path it names), and
   its `next:` line repeats `--root` when one was given.
@@ -952,7 +1004,8 @@ model, in the same units and grid formats, so the agent compares text with text.
    asset frame (x, y for front views) and the nearest visible part name — "missing 0.6 × 0.9 m at
    x 1.2..1.8, y 3.0..3.9, next to `shaft` → a part is missing (balcony?)"), `parts` (for each
    visible part: reference median color under its pixels, model rendered median color, ΔE (CIE76)
-   and a suggested material base color = base × reference / rendered, clipped), `grid` (diff
+   and a suggested material base color: the reference colour for flat paint, base × reference /
+   rendered / the picture's overall light for lit pictures, clipped; see 12.2a), `grid` (diff
    silhouette, ≤ 32 columns: `#` both, `+` model only, `-` reference only, `.` neither),
    `unknowns` (from the reference analysis).
 4. Images: `out/<asset>/match_<i>.png` = reference | model render | overlay (both = grey,
@@ -966,7 +1019,8 @@ azimuth a and −a give mirror images of symmetric objects).
 ### 12.2a Implementation notes (reference)
 
 - Signatures: `analyze_reference(image_path, view="front", height=None, mask=None, *, style=None,
-  root=None)` (style names the nearest material per color; root shortens the image path);
+  root=None, lighting=None)` (style names the nearest material per color; root shortens the image path;
+  lighting "lit"/"flat" overrides the guess);
   `match_asset(asset, index=0, res=256, out_dir=None, *, view=None)` writes `match_<index>.png`
   only when `out_dir` is given (the CLI passes `out/<asset>`), `view` overrides the reference's
   view; `fit_view(asset, index=0, res=64, top=5) -> [{view, azimuth, elevation, iou, alias}]`
@@ -975,8 +1029,17 @@ azimuth a and −a give mirror images of symmetric objects).
 - Analysis keys add `analyzed_px`, `mask.{source, reasons, dropped_specks, border_touch,
   bottom_touch, background, tolerance, border_spread}`, `scale.{height, unit 'm'|'%', note}`,
   `size`, `proportions.{fill, symmetry_lr, center, widest_band}`, `colors[].{center,
-  nearest_material, material_delta_e}`, `thin_details`, and `unknowns` as `{topic, question,
-  default}`. Images over 1600 px are box-reduced by an integer factor first.
+  nearest_material, material_delta_e}`, `thin_details`, `lighting`, and `unknowns` as `{topic,
+  question, default}`. Images over 1600 px are box-reduced by an integer factor first.
+- Lighting: `{mode: lit|flat, source: auto|given, guess, smooth, spread, object_luminance,
+  background_luminance, evidence}`. Shading spreads a paint over a range of tones that change gently
+  from pixel to pixel; flat paint keeps a region one colour. `lit` when the median RGB distance of the
+  object's pixels to their k-means colour is ≥ 4 and ≥ 20% of neighbouring interior pixel pairs differ
+  by 0.5..8 luminance steps (a shaded biplane render: 9.6 and 39%; flat concept art: < 1 and < 5%).
+  `reference: {lighting: lit|flat}` (or `ref --lighting`) overrides the guess. For lit pictures the
+  materials question says the colours are shaded, not the paint, and its default is to choose each
+  material by what the part is, keeping the picture's light-to-dark order (white wings measured
+  #555a58 in a dim render and the nearest material was iron); the text adds a LIGHTING line.
 - Confidence: border color spread (MAD) ≤ 6 high, ≤ 14 medium, else low; the object touching the
   top/left/right border > 2% → medium, > 15% → low; coverage > 60% → medium, > 85% → low; more than
   20 dropped specks → medium, counting only specks that are neither within 8 px of the object nor
@@ -991,23 +1054,54 @@ azimuth a and −a give mirror images of symmetric objects).
 - k-means: luminance-quantile init and 8 iterations plus deterministic re-seeding of empty or
   duplicate clusters at the worst-fitting pixel; clusters closer than ΔE 2 merge, clusters under 1%
   are not listed.
-- Matching: bottoms aligned; horizontally the bbox centers first, then the shift with the best IoU
-  within ±25% of the width, refined to a quarter pixel (`align.shift`). With `height` in elevated
-  views (iso, orbit elevation ≠ 0) the picture height is multiplied by the model's projected/world
-  height ratio. Regions are labelled without the 1-px band of each difference mask that touches the
-  other silhouette (the dilation/resampling fringe), then get their own band pixels back, so a real
-  region next to an edge does not merge with the fringe along the whole outline. They need ≥ 1% of
-  the reference area **and** a mean thickness ≥ 1.5 grid px; each gets size, thickness, `depth` (its
-  largest extent normal to the nearest part's side, used for "by ~X m") and a hint ("a part is
-  missing here", "`p` may be too small on the <side> by ~X m", "`p` is too big …", "`p` is not in
-  the reference", "`p` sticks out here"). `size` (the SIZE line and `aspect`) uses the model's exact
-  AABB extent along the view axes when they are world axes and agree with the silhouette within
-  1.5 px (else the silhouette bbox minus its pixel of dilation) and the reference's full-resolution
-  mask bbox at the reference scale, not the resampled grid. Region bboxes use world axes for axis views and `h`/`v`
-  (image-plane meters) for oblique views.
-- Per-part colors add `delta_e_base` (base vs reference) next to `suggested = base × reference /
-  rendered`; `rendered` is a flat Lambert from the style light (no patterns/shadows/AO/gamma). For
-  flat concept art use the reference color, for lit pictures `suggested`.
+- Model coverage: the march's hit mask is half a pixel wider per edge, which made a 3 px wing 4 px
+  (+30% "extra" on thin wings) and let the reading move with the pixel phase (the scene bounds frame
+  the camera): one biplane read 0.72..0.76 over res 256..1024, a candidate 0.735 at 192 and 0.835 at
+  256. Pixels two erosions inside the march mask count as covered, pixels outside its dilation as
+  empty, and the band between is sampled with a 34-point Fibonacci lattice (every sample its own row
+  and column offset, so straight edges resolve to 1/34 px) at a 0.005 px hit threshold. `iou`,
+  `missing` and `extra` are area shares of the two coverages: intersection = Σ min(reference, model),
+  union = Σ max (where both edges cross a pixel from the same side the partial coverages nest, so this
+  is the area IoU); thin structures count with their real width at every res. The binary masks (≥ 50%)
+  still drive the regions, the grid and the overlay. The same biplane now reads 0.817..0.828 over res
+  192..1024, missing 0.13..0.14 (the skipped bracing wires count at every res; before they appeared
+  only from res ~768).
+- Matching: in upright views (camera up = +y) the picture's bottom goes on the ground line y = 0, or
+  on the model's bottom when the model floats (`align.bottom` = `ground` | `bottom`, `align.base` the
+  y); the lowest silhouette pixel is used only in elevated views or when the silhouette's bottom is
+  more than 1 px above that line (`silhouette`). Parts reaching below the ground are listed in
+  `align.below_ground` ([{part, depth}]) and do not move the picture: a part 4 cm below y = 0 had
+  shifted the whole picture down and dropped a biplane's IoU from 0.80 to 0.69. Horizontally the
+  sub-pixel centers first, then the shift with the best (area) IoU within ±25% of the width, refined to
+  a quarter pixel (`align.shift`). With `height` in elevated views (iso, orbit elevation ≠ 0) the
+  picture height is multiplied by the model's projected/world height ratio. Regions are labelled
+  without the 1-px band of each difference mask that touches the other silhouette (the resampling
+  fringe), then get their own band pixels back, so a real region next to an edge does not merge with
+  the fringe along the whole outline. Each difference mask is split into its thick core (what a
+  5 × 5 opening keeps) and its thin strokes (up to 4 grid px wide), labelled apart: thin regions
+  (`thin: true`, `width` = 2·area/perimeter) are wires, rods or rigging and get "thin detail missing:
+  strokes ~0.03 m wide (wire, rod, pole?) …, no part needs resizing" (or "thin model detail … not in
+  the picture"), never "`p` may be too small" (bracing wires read "`wing_upper_r` may be too small on
+  the bottom by ~0.26 m"); they sort after the thick regions. Regions need ≥ 1% of the reference area
+  **and** a mean thickness ≥ 1.5 grid px; each gets size, thickness, `depth` (its largest extent
+  normal to the nearest part's side, used for "by ~X m") and a hint ("a part is missing here", "`p`
+  may be too small on the <side> by ~X m", "`p` is too big …", "`p` is not in the reference", "`p`
+  sticks out here"). `size` (the SIZE line and `aspect`) uses the model's sub-pixel silhouette extent
+  (its exact AABB extent when the view axis is a world axis and the two agree within 0.15 px), the
+  same at every res, and the reference's full-resolution mask bbox at the reference scale. Region
+  bboxes use world axes for axis views and `h`/`v` (image-plane meters) for oblique views.
+- Width profile: band edges are sub-pixel (the end columns add their partial coverage). A verdict
+  must hold with the band's top and bottom moved by `slack` = max(1.5 px, 2% of the height): each
+  edge ranges between its position over the narrowed and the widened band, and only a difference
+  between non-overlapping ranges counts. Otherwise the verdict is `ok within 0.07 m up/down (an edge
+  runs along the band border)` (a wing 4 cm higher in the picture read "model too narrow by 1.8 m").
+- Per-part colors add `delta_e_base` (base vs reference) next to `suggested`; `rendered` is a flat
+  Lambert from the style light (no patterns/shadows/AO/gamma). Flat paint: `suggested` = the
+  reference colour. Lit: `suggested = base × reference / rendered / exposure`, where `exposure`
+  (`lighting.exposure` in the report) is the per-channel median of reference / rendered over the
+  parts: the picture's overall light, light colour and direction cancel, and only parts that differ
+  from the rest change (a dim render had suggested #f2ffff for every cream wing). The table sizes its
+  name and material columns to the longest entry.
 - `fit_view` crops both silhouettes to their bboxes and scales the longer side to 64 px keeping the
   aspect, compares them bottom-aligned and centered; results carry alias names. Round objects give
   near-ties at many azimuths.

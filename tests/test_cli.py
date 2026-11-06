@@ -278,3 +278,25 @@ def test_brief_todos_pick_the_matching_check():
     text = cli._brief_todos("Tall, about 8 m. The door must face the player. Readable at 16 px.")
     lines = text.splitlines()
     assert "size:" in lines[1] and "visible:" in lines[2] and "readable_at:" in lines[3]
+    assert "size: {height: [lo, hi]}" in lines[1]
+
+
+def test_brief_size_hint_names_the_dimension():
+    text = cli._brief_todos("Upper wingspan 10 m, about 2.7 m tall on its wheels. A fuselage about 7.5 m long.")
+    lines = text.splitlines()
+    assert "size: {width: [lo, hi], height: [lo, hi]} or part_size" in lines[1]
+    assert "size: {depth: [lo, hi]} or part_size" in lines[2]
+
+
+def test_render_no_ground_and_views_from_below(tmp_path):
+    out = tmp_path / "r"
+    proc = run("render", "crate", "--views", "front,orbit:30:-20", "--no-ground", "--no-human", "--out", str(out))
+    assert proc.returncode == 0, proc.stderr
+    from sightline.loader import load_asset
+    from sightline.render import render_raw
+
+    crate = load_asset("crate", ROOT)
+    raws = render_raw(crate, ["front", "orbit:30:-20"], 64)
+    assert raws["front"].ground.any()  # the style shows the slab ...
+    assert not raws["orbit:30:-20"].ground.any()  # ... but not when looking up from below the ground
+    assert not render_raw(crate, ["front"], 64, ground=False)["front"].ground.any()

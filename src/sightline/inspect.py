@@ -28,20 +28,26 @@ from .voxel import VoxelGrid, occupancy
 
 __all__ = [
     "inspect_asset", "format_report", "diff_reports", "measured_scene", "visible_fractions", "visible_occluders",
-    "readability",
+    "readability", "ground_contacts",
     "compare_silhouettes", "relative_luminance", "contrast_ratio", "hex_to_rgb", "REPORT_VIEWS",
 ]
 
 REPORT_VIEWS = ("front", "right", "top", "iso")
 HUMAN_HEIGHT = 1.8
 COLOR_VIEW = "iso"  # colors and contrast
-READ_VIEW = "front"  # readability
+READ_VIEW = "front"  # readability (the report's `readability`)
+READ_MORE_VIEWS = ("iso",)  # ... and these too (`readability_views`): thin parts can vanish only from the front
 READ_SIZES = (32, 16)
 READ_FULL_PX = 256  # long side of the full-resolution silhouette that readability downsamples
 KEEP_PX = 4  # a part survives a downscale if it owns at least this many pixels
 SIL_MAX = 32  # silhouette grid: at most this many columns and rows
 COMPARE_PX = 128
 LOW_VISIBLE = 0.30
+SMALL_FOOTPRINT_PX = 40  # visibility of parts covering fewer pixels is measured on a finer grid...
+FINE_STEPS = 4  # ... this many times finer
+HIDDEN_TAG = "hidden"  # parts tagged hidden are expected to be out of sight: no low-visibility warning
+SUPPORT_BAND = 0.02  # m: material this close above the ground (or below it) is a ground contact
+SUPPORT_STEP = 0.01  # m: finest xz step of the ground contact search
 LOW_CONTRAST = 1.5
 MIN_SHARED_EDGE = 3  # boundary pixel pairs for two parts to count as adjacent
 LETTERS = string.ascii_uppercase + string.ascii_lowercase
@@ -188,7 +194,7 @@ def _convex_hull(points: np.ndarray) -> np.ndarray:
 def _signed_distance(poly: np.ndarray, q: np.ndarray) -> float:
     """Distance from q to the edge of a CCW convex polygon: positive inside, negative outside."""
     if len(poly) < 3:
-        return -float(np.min(np.linalg.norm(poly - q, axis=1))) if len(poly) else -math.inf
+        return -float(np.linalg.norm(q - _closest_on_polygon(poly, q))) if len(poly) else -math.inf
     e = np.roll(poly, -1, axis=0) - poly
     length = np.linalg.norm(e, axis=1)
     inward = np.stack([-e[:, 1], e[:, 0]], axis=1) / length[:, None]
@@ -200,31 +206,122 @@ def _signed_distance(poly: np.ndarray, q: np.ndarray) -> float:
     return -float(np.min(np.linalg.norm(q - closest, axis=1)))
 
 
-def _mass(grid: VoxelGrid, union: np.ndarray, grounded: bool) -> dict:
-    """Volume and center of mass (uniform density over strict occupancy) and stability."""
+def _voxel_footprint(grid: VoxelGrid, union: np.ndarray) -> np.ndarray:
+    """xz corners of the cells in the lowest two occupied layers (fallback support polygon)."""
+    ys = np.flatnonzero(union.any(axis=(0, 2)))
+    foot = union[:, ys[0]:ys[0] + 2, :].any(axis=1)  # (nx, nz)
+    xs = np.flatnonzero(foot.any(axis=1))
+    rows = foot[xs]
+    z_first = rows.argmax(axis=1)
+    z_last = rows.shape[1] - 1 - rows[:, ::-1].argmax(axis=1)
+    h = grid.cell / 2
+    x_c = grid.origin[0] + grid.cell * xs
+    z_lo = grid.origin[2] + grid.cell * z_first - h
+    z_hi = grid.origin[2] + grid.cell * z_last + h
+    return np.concatenate([np.stack([x_c + dx, z], axis=1) for dx in (-h, h) for z in (z_lo, z_hi)])
+
+
+def ground_contacts(scene: Scene, solids: list[int], base: float, start: float) -> tuple[np.ndarray, list[int]]:
+    """Where the solids touch the ground, from the SDF: (xz points (N, 2), parts with a contact, file order).
+
+    A part touches the ground where it has material below `base + SUPPORT_BAND` (`base` = the ground
+    plane y = 0, or the asset's bottom when it floats within the grounded tolerance). Each part's
+    slab is searched coarse to fine: square xz cells from `start` (m) halve down to SUPPORT_STEP; a
+    cell is dropped when the part's distance at its center exceeds the cell's half-diagonal (the SDF
+    is a lower bound, so no material is lost), and a cell that lies wholly inside material adds its
+    corners without being refined. Thin contacts (a tyre's bottom, a 3 cm skid) are found at any
+    voxel size, which the old two-lowest-voxel-layers footprint could not do.
+    """
+    top = base + SUPPORT_BAND
+    points: list[np.ndarray] = []
+    touching: list[int] = []
+    for i in solids:
+        lo, hi = (np.asarray(v, dtype=np.float64) for v in scene.aabb(i))
+        if lo[1] > top:
+            continue
+        a, b = float(lo[1]), top
+        span = np.maximum(hi[[0, 2]] - lo[[0, 2]], 1e-6)
+        counts = np.maximum(np.ceil(span / max(start, SUPPORT_STEP)).astype(int), 1)
+        step = span / counts  # (sx, sz)
+        gx, gz = np.meshgrid(lo[0] + (np.arange(counts[0]) + 0.5) * step[0],
+                             lo[2] + (np.arange(counts[1]) + 0.5) * step[1], indexing="ij")
+        cols = np.stack([gx.ravel(), gz.ravel()], axis=1)
+        found = 0
+        while len(cols):
+            ny = max(1, math.ceil((b - a) / max(float(step.min()), SUPPORT_STEP)))
+            hy = (b - a) / (2 * ny)
+            ys = a + (np.arange(ny) + 0.5) * 2 * hy
+            p3 = np.empty((3, len(cols) * ny), dtype=np.float32)
+            p3[0] = np.repeat(cols[:, 0], ny)
+            p3[1] = np.tile(ys, len(cols))
+            p3[2] = np.repeat(cols[:, 1], ny)
+            d = scene.part_dist3(i, p3).reshape(len(cols), ny)
+            r = math.sqrt(float((step / 2) @ (step / 2)) + hy * hy)
+            full = (d <= -r).any(axis=1)  # the whole cell box lies in material at some level
+            near = (d <= r).any(axis=1) & ~full
+            if full.any():
+                hx, hz = step / 2
+                c = cols[full]
+                points += [c + np.array([sx * hx, sz * hz]) for sx in (-1, 1) for sz in (-1, 1)]
+                found += int(full.sum())
+            if float(step.max()) <= SUPPORT_STEP * (1 + 1e-9):
+                if near.any():
+                    sel = np.flatnonzero(near)
+                    # A distance near 0 on the sheet a coplanar cut face leaves over its hole is no material.
+                    k = np.argmin(d[sel], axis=1)
+                    p_best = p3.reshape(3, len(cols), ny)[:, sel, k]
+                    d_best = d[sel, k]
+                    phantom = _phantom(scene, i, np.ascontiguousarray(p_best), d_best,
+                                       np.ones(len(sel), dtype=bool), SUPPORT_STEP)
+                    keep = sel[~phantom]
+                    points.append(cols[keep])
+                    found += len(keep)
+                break
+            step = step / 2
+            c = cols[near]
+            cols = np.concatenate([c + np.array([sx * step[0] / 2, sz * step[1] / 2]) for sx in (-1, 1) for sz in (-1, 1)])
+        if found:
+            touching.append(i)
+    pts = np.concatenate(points) if points else np.zeros((0, 2))
+    return pts, touching
+
+
+def _mass(grid: VoxelGrid, union: np.ndarray, grounded: bool, support: tuple[np.ndarray, list[str]] | None = None) -> dict:
+    """Volume and center of mass (uniform density over strict occupancy) and stability.
+
+    `support` = (ground contact xz points, names of the parts that make them) from `ground_contacts`;
+    without points the lowest two voxel layers stand in for them.
+    """
     n = int(np.count_nonzero(union))
     if n == 0:
-        return {"volume": 0.0, "center": None, "stable": None, "support_margin": None}
+        return {"volume": 0.0, "center": None, "stable": None, "support_margin": None, "support": None,
+                "tips_toward": None}
     idx = np.nonzero(union)
     com = grid.origin + grid.cell * np.array([a.mean() for a in idx])
-    stable, margin = None, None
+    stable, margin, names, tips = None, None, None, None
     if grounded:
-        # Support: cells of the lowest occupied layer (and the next one, against sampling steps).
-        ys = np.flatnonzero(union.any(axis=(0, 2)))
-        foot = union[:, ys[0]:ys[0] + 2, :].any(axis=1)  # (nx, nz)
-        xs = np.flatnonzero(foot.any(axis=1))
-        rows = foot[xs]
-        z_first = rows.argmax(axis=1)
-        z_last = rows.shape[1] - 1 - rows[:, ::-1].argmax(axis=1)
-        h = grid.cell / 2
-        x_c = grid.origin[0] + grid.cell * xs
-        z_lo = grid.origin[2] + grid.cell * z_first - h
-        z_hi = grid.origin[2] + grid.cell * z_last + h
-        pts = np.concatenate([np.stack([x_c + dx, z], axis=1) for dx in (-h, h) for z in (z_lo, z_hi)])
-        margin = _signed_distance(_convex_hull(pts), com[[0, 2]])
+        pts, names = support if support is not None and len(support[0]) else (_voxel_footprint(grid, union), [])
+        hull = _convex_hull(pts)
+        q = com[[0, 2]]
+        margin = _signed_distance(hull, q)
         stable = bool(margin >= 0)
+        if not stable:
+            # Which way it tips: from the closest point of the support polygon toward the center of mass.
+            closest = _closest_on_polygon(hull, q)
+            dx, dz = q - closest
+            tips = ("+x" if dx > 0 else "-x") if abs(dx) >= abs(dz) else ("+z" if dz > 0 else "-z")
     return {"volume": _r(n * grid.cell**3, 4), "center": _vec(com), "stable": stable,
-            "support_margin": None if margin is None else _r(margin)}
+            "support_margin": None if margin is None else _r(margin), "support": names, "tips_toward": tips}
+
+
+def _closest_on_polygon(poly: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Closest point to q on the boundary of a polygon (or point set when it has fewer than 3 vertices)."""
+    if len(poly) == 1:
+        return poly[0]
+    e = np.roll(poly, -1, axis=0) - poly
+    t = np.clip(((q - poly) * e).sum(axis=1) / np.maximum((e * e).sum(axis=1), 1e-18), 0.0, 1.0)
+    closest = poly + t[:, None] * e
+    return closest[int(np.argmin(np.linalg.norm(q - closest, axis=1)))]
 
 
 def _index_box(grid: VoxelGrid, lo, hi) -> list[tuple[int, int]] | None:
@@ -493,10 +590,16 @@ def _solid_visibility(scene, solids, views, cams, bufs, rays) -> dict:
                 continue
             alone = _trace_parts(scene.only([i]), cam, rays[view], win) >= 0
             n_alone = int(np.count_nonzero(alone))
+            full = _crop(buf.part, win)
+            if 0 < n_alone < SMALL_FOOTPRINT_PX:
+                # A few pixels say little (eroded, a 3 x 3 part keeps one pixel that a propeller blade can
+                # cover): measure again on a grid FINE_STEPS times finer over the part's window.
+                fine = _fine_camera(cam, win, FINE_STEPS)
+                alone = _trace_parts(scene.only([i]), fine) >= 0
+                full = _trace_parts(scene, fine)
             core = _erode(alone)
             if not core.any():  # thinner than 3 px: the whole footprint
                 core = alone
-            full = _crop(buf.part, win)
             seen = core & (full == i)
             others = full[core & ~seen]
             others = others[others >= 0]
@@ -505,6 +608,13 @@ def _solid_visibility(scene, solids, views, cams, bufs, rays) -> dict:
             frac = np.count_nonzero(seen) / n_core if n_core else 0.0
             out[i][view] = (float(frac), n_alone, occluder)
     return out
+
+
+def _fine_camera(cam: Camera, win, k: int) -> Camera:
+    """A camera over the pixel window (r0, r1, c0, c1) of `cam` with k x k pixels per pixel of it."""
+    r0, r1, c0, c1 = win
+    center = cam.pixel_to_world((c0 + c1) / 2.0, (r0 + r1) / 2.0)
+    return fixed_camera(cam.view, center, cam.mpp / k, (c1 - c0) * k, (r1 - r0) * k, cam.near)
 
 
 def _cut_visibility(scene, c, targets, views, cams, bufs, rays, removed: float | None = None) -> dict:
@@ -877,7 +987,11 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
     size = {"width": _r(ext[0]), "height": _r(ext[1]), "depth": _r(ext[2]), "min": _vec(lo), "max": _vec(hi),
             "human_ratio": _r(ext[1] / HUMAN_HEIGHT)}
     ground = {"min_y": _r(min_y), "grounded": bool(grounded), "floats_by": _r(max(min_y, 0.0) if not grounded else 0.0)}
-    mass = _mass(grid, union, grounded)
+    support = None
+    if grounded:
+        pts, touching = ground_contacts(scene, solids, max(min_y, 0.0), cell)
+        support = (pts, [parts[i].name for i in touching])
+    mass = _mass(grid, union, grounded, support)
     symmetry = {"x": _r(_iou(union, union[::-1, :, :])), "z": _r(_iou(union, union[:, :, ::-1]))}
 
     # Contacts and floating pieces.
@@ -946,6 +1060,7 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
         silhouette[v] = sil
 
     read = _readability(scene, READ_VIEW, READ_SIZES)
+    read_more = {v: _readability(scene, v, READ_SIZES) for v in READ_MORE_VIEWS if v != READ_VIEW}
 
     compared = {}
     for other in compare:
@@ -976,6 +1091,7 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
         "contrast": contrast,
         "silhouette": silhouette,
         "readability": read,
+        "readability_views": read_more,
         "compare": compared,
     }
     report["warnings"] = _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views)
@@ -1013,14 +1129,19 @@ def _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views) -
     m = report["mass"]
     if m["stable"] is False:
         cx, _, cz = m["center"]
-        out.append(f"unstable: the center of mass (x {cx:.2f}, z {cz:.2f}) is {-m['support_margin']:.2f} m outside the "
-                   f"ground footprint — widen the base or move mass back over it")
+        side = _TIP_WORDS.get(m.get("tips_toward"), "outside")
+        names = m.get("support") or []
+        on = f"the ground contacts ({_name_list(names)})" if names else "the ground footprint"
+        out.append(f"unstable: the center of mass (x {cx:.2f}, z {cz:.2f}) is {-m['support_margin']:.2f} m {side} "
+                   f"{on} — add a support under it or move mass over the contacts")
     for entry in report["cuts"]:
         if entry["removed_volume"] <= 0:
             targets = ", ".join(entry["cuts"]) or "no solid"
             out.append(f"cut {entry['name']} removes nothing — it does not intersect {targets}; move it into the part or fix from:")
     for i in solids:
         name = parts[i].name
+        if HIDDEN_TAG in parts[i].tags:  # the designer expects it hidden (an interior or underside part)
+            continue
         best_view = max(views, key=lambda v: (vis[i][v][0], -views.index(v)))
         frac, _, occluder = vis[i][best_view]
         if frac >= LOW_VISIBLE:
@@ -1042,7 +1163,7 @@ def _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views) -
         shown = {v: cut_vis[c][v][3] if inset[v] else cut_vis[c][v][0] for v in views}
         frac = max(shown.values())
         blocked = [v for v in views if cut_vis[c][v][3] >= LOW_VISIBLE and cut_vis[c][v][2] >= 0 and not inset[v]]
-        if frac < LOW_VISIBLE and blocked and removed[parts[c].name] > 0:
+        if frac < LOW_VISIBLE and blocked and removed[parts[c].name] > 0 and HIDDEN_TAG not in parts[c].tags:
             v = blocked[0]
             out.append(f"cut {parts[c].name} is under {round(LOW_VISIBLE * 100)}% visible in every view (in {v} "
                        f"{_pct(cut_vis[c][v][0])}, {_pct(cut_vis[c][v][3])} without other parts); hidden by "
@@ -1055,12 +1176,29 @@ def _warnings(report, scene, solids, cuts, vis, cut_vis, float_members, views) -
     if low:
         out.append(f"low contrast (< {LOW_CONTRAST}) between adjacent parts in the iso view: {', '.join(low)} — "
                    f"make one material of each pair lighter or darker")
-    read = report["readability"]
-    lost = _at_px(read["at_px"]).get(32, {}).get("parts_lost", [])
+    # Parts that vanish at 32 px in every readability view where they are seen at all (a wing seen edge-on
+    # from the front may still read from iso).
+    reads = [report["readability"], *report.get("readability_views", {}).values()]
+    lost_in, kept_in = {}, set()
+    for read in reads:
+        e = _at_px(read["at_px"]).get(32, {})
+        kept_in.update(e.get("parts_kept", []))
+        for name in e.get("parts_lost", []):
+            lost_in.setdefault(name, []).append(read["view"])
+    lost = [n for n in lost_in if n not in kept_in and HIDDEN_TAG not in parts[next(
+        i for i in solids if parts[i].name == n)].tags]
     if lost:
-        out.append(f"at 32 px ({read['view']}) these parts vanish: {', '.join(lost)} — make them larger or thicker "
+        where = ", ".join(r["view"] for r in reads)
+        out.append(f"at 32 px ({where}) these parts vanish: {', '.join(lost)} — make them larger or thicker "
                    f"if they matter at a distance")
     return out
+
+
+_TIP_WORDS = {"+x": "right of (+x)", "-x": "left of (-x)", "+z": "in front of (+z)", "-z": "behind (-z)"}
+
+
+def _name_list(names: list[str], limit: int = 6) -> str:
+    return ", ".join(names[:limit]) + (f" +{len(names) - limit} more" if len(names) > limit else "")
 
 
 def _inside_cut(scene: Scene, i: int, c: int) -> bool:
@@ -1185,6 +1323,8 @@ def format_report(report: dict) -> str:
     stable = _yes(m["stable"]) + (" (not grounded)" if m["stable"] is None else "")
     head("MASS", f"volume {m['volume']:.3f} m3  center {_v(m['center'])}  stable {stable}  "
          f"support margin {_m(m['support_margin'])} m")
+    if m.get("support"):
+        out.append(_INDENT + f"ground contacts: {_name_list(m['support'], 12)}")
     head("SYMMETRY", f"x {_pct(r['symmetry']['x'])}  z {_pct(r['symmetry']['z'])}  "
          "(occupancy IoU with the mirror image across the bounding-box center plane)")
 
@@ -1235,14 +1375,15 @@ def format_report(report: dict) -> str:
         out.append("")
         out += _silhouette_lines(view, sil)
 
-    read = r["readability"]
+    reads = [r["readability"], *r.get("readability_views", {}).values()]
     out.append("")
-    head("READABILITY", f"{read['view']}: silhouette at N px on the longer side, upscaled back, IoU vs full resolution; "
-         f"kept = covers >= {KEEP_PX} px")
-    for n, e in sorted(_at_px(read["at_px"]).items(), reverse=True):
-        out.append(f"  {n:>3} px  IoU {_pct(e['iou'])}")
-        out.append(f"          kept {len(e['parts_kept'])}: {', '.join(e['parts_kept']) or '-'}")
-        out.append(f"          lost {len(e['parts_lost'])}: {', '.join(e['parts_lost']) or '-'}")
+    head("READABILITY", f"{', '.join(x['view'] for x in reads)}: silhouette at N px on the longer side, upscaled back, "
+         f"IoU vs full resolution; kept = covers >= {KEEP_PX} px")
+    for read in reads:
+        for n, e in sorted(_at_px(read["at_px"]).items(), reverse=True):
+            out.append(f"  {read['view']:<6}{n:>3} px  IoU {_pct(e['iou'])}")
+            out.append(f"                kept {len(e['parts_kept'])}: {', '.join(e['parts_kept']) or '-'}")
+            out.append(f"                lost {len(e['parts_lost'])}: {', '.join(e['parts_lost']) or '-'}")
 
     head("COMPARE", "none" if not r["compare"] else "silhouette IoU, aligned at the ground and horizontal center; "
          "normalized = scaled to equal height")
@@ -1279,6 +1420,7 @@ def _facts(r: dict) -> dict[str, str]:
     m = r["mass"]
     f["mass.volume"], f["mass.center"] = f"{m['volume']:.3f}", _v(m["center"])
     f["mass.stable"], f["mass.support_margin"] = _yes(m["stable"]), _m(m["support_margin"])
+    f["mass.support"] = ", ".join(m.get("support") or []) or "-"
     for axis, value in r["symmetry"].items():
         f[f"symmetry.{axis}"] = _pct(value)
     for p in r["parts"]:
@@ -1303,11 +1445,11 @@ def _facts(r: dict) -> dict[str, str]:
         f[f"colors.{mat}"] = _pct(share)
     for e in r["contrast"]:
         f[f"contrast.{e['a']}+{e['b']}"] = f"{e['ratio']:.2f}"
-    read = r["readability"]
-    for n, e in _at_px(read["at_px"]).items():
-        base = f"readability.{read['view']}.{n}px"
-        f[f"{base}.iou"] = _pct(e["iou"])
-        f[f"{base}.kept"], f[f"{base}.lost"] = ", ".join(e["parts_kept"]) or "-", ", ".join(e["parts_lost"]) or "-"
+    for read in (r["readability"], *r.get("readability_views", {}).values()):
+        for n, e in _at_px(read["at_px"]).items():
+            base = f"readability.{read['view']}.{n}px"
+            f[f"{base}.iou"] = _pct(e["iou"])
+            f[f"{base}.kept"], f[f"{base}.lost"] = ", ".join(e["parts_kept"]) or "-", ", ".join(e["parts_lost"]) or "-"
     for other, per_view in r["compare"].items():
         for view, e in per_view.items():
             f[f"compare.{other}.{view}.iou_true_scale"] = _pct(e["iou_true_scale"])

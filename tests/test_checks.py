@@ -124,7 +124,8 @@ def test_stable(stack, overhang, balloon):
     assert res.passed and res.data["margin"] > 0.4
     res = check(overhang, "stable")
     assert not res.passed and res.data["margin"] == pytest.approx(-(1.154 - 0.2), abs=0.04)
-    assert res.measured == f"center of mass {-res.data['margin']:.2f} m outside the footprint"
+    assert res.measured == f"center of mass {-res.data['margin']:.2f} m right of (+x) the footprint (ground contacts: pillar)"
+    assert res.data["support"] == ["pillar"] and res.message.startswith("add a support under the center of mass")
     res = check(balloon, "stable")
     assert not res.passed and res.measured == "n/a (not grounded)"
 
@@ -280,7 +281,7 @@ def fake_reference(monkeypatch):
     module = types.ModuleType("sightline.reference")
 
     def match_asset(asset, index=0, res=256):
-        calls.append(index)
+        calls.append(index if res == 256 else (index, res))
         return {"iou": module.iou, "missing": module.missing}
 
     module.match_asset = match_asset
@@ -307,6 +308,12 @@ def test_matches_reference(fake_reference):
     with pytest.raises(SightlineError) as info:
         check(case, {"matches_reference": {"index": 1}})
     assert "out of range" in info.value.message
+    # res: the model render's long side (the match is measured on that grid).
+    res = check(case, {"matches_reference": {"min_iou": 0.6, "max_missing": 0.2, "res": 512}})
+    assert res.passed and res.measured == "IoU 0.70, missing 12% (reference 0, res 512)" and calls[-1] == (0, 512)
+    for bad in (8, 5000, 2.5):
+        with pytest.raises(SightlineError):
+            check(case, {"matches_reference": {"res": bad}})
 
 
 def test_matches_reference_without_reference(stack):
