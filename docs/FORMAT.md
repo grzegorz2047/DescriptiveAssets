@@ -187,6 +187,7 @@ Each shape has a local frame centered on its local bounding box, with Y as its m
 | `capsule` | `radius`, `height` (total, ≥ 2r) | 2r, h, 2r |
 | `torus` | `radius` (ring center), `thickness` (tube radius); the ring lies in local XZ | 2(R+t), 2t, 2(R+t) |
 | `wedge` | `size: [w, h, d]`: triangular prism along X, full height at the back (−Z), sloping to 0 at the front edge (+Z) | w, h, d |
+| `extrude` | `points: [[x, y], ...]` (3..64 corners of an outline in the XY plane, as seen from the front, in order, no crossing edges), `depth` (along Z), `round: r` (≤ depth/2) | outline width, outline height, depth |
 
 - `sides: n` makes a regular n-gon with a **flat face toward +Z**; `radius` is the circumradius, so
   the flat face is at `radius · cos(180°/n)`. A door cut on `@[0, -1, 1]` of an 8-sided tower
@@ -194,6 +195,9 @@ Each shape has a local frame centered on its local bounding box, with Y as its m
 - `sides: 4` cones are square pyramids whose faces point along ±X and ±Z (half-width
   `radius · 0.707`) — the usual hip roof.
 - An upside-down cone: `rotate: [180, 0, 0]`, or a frustum with `top_radius > radius`.
+- `extrude` outlines are re-centred on their bounding box (only their shape counts; place them with
+  `at`/`on` like any part). They are the way to angular plates, shields, blades and emblems:
+  `sightline structure <asset> --trace R12,R15` writes them traced from the reference picture.
 - The anchor box is the *bbox*, not the visible surface: a `sides: 3` prism's flat edge is at half
   the circumradius, so place it with an explicit `offset` (see `shield_tip` in `assets/knight.yaml`).
 
@@ -351,9 +355,19 @@ alone and, for an asset, says where the model's parts and materials agree with t
 `sightline structure <asset>` aligns the picture with the model like `match` (default `--res 512`)
 and reports:
 
+- `CLASSES`: dark/bright/accent agreement over the areas, i.e. leaving out the pixels within 1 px of a
+  class border in either image (where the borders lie is DIVISIONS' job); the strict figure over every
+  shared pixel follows in brackets. The picture's classes come from its colours averaged with the mirror
+  image when the silhouette is left/right symmetric (IoU >= 0.9), so light from one side does not turn
+  one side's material dark; lights and decals are still read from the picture itself. The model's
+  classes come from its materials' own colours (unlit; Otsu, or L 50 for a one-toned model).
+- `DIVISIONS`: the share of the picture's region borders with a model part boundary within 2 px, and of
+  the model's part boundaries that lie on a picture border or edge. `DETAIL` gives the same against every
+  edge pixel, grooves and lines inside elements included.
+
 ```
-CLASSES    dark/bright/accent agree on 67% of the shared silhouette
-DIVISIONS  44% of the picture's inner edges have a model part boundary within 2 px; 78% of the model's part boundaries lie on a picture edge
+CLASSES    dark/bright/accent agree on 93% of the areas (85% of every shared pixel, 1 px class borders included)
+DIVISIONS  91% of the picture's region borders have a model part boundary within 2 px; 94% of the model's part boundaries lie on a picture border or edge
 FINDINGS   11 regions disagree with the model, 50 agree
   R18  dark  0.13 x 0.23 m at x -0.06..+0.08, y 1.41..1.64: picture is dark here, the model bright: chest (metal); use a dark part (frame, gap, joint) here
   R97  accent blue  0.03 x 0.02 m at x -0.05..-0.02, y 1.77..1.79: light or decal missing: the model shows visor (iron) here; add a small blue part
@@ -363,6 +377,13 @@ SPLITS     model parts that the picture divides into several elements (split the
 
 and writes `out/<asset>/structure_<i>.png` (picture regions that disagree | the model with its part
 boundaries | class agreement and shared / picture-only / model-only edges).
+
+`sightline structure <asset> --trace R12,R15 [--depth 0.03]` (or `--trace disagree`) prints `extrude`
+parts traced from those regions: the region's outline (smoothed by 2 px, simplified to at most 14
+corners) in meters, placed on the model's surface at that spot (bright regions stand `depth` out, sunk
+1 cm; dark ones only 4 mm, on the deeper surface, so lights and joints stay in front), the material the
+model already uses most for that class, and a left/right pair as one part with `mirror: x`. Front
+references only.
 
 The three classes suit mechanical designs (plates, frame, lights). On multi-coloured costumes (red
 cloth, gold trim, skin) large saturated areas count as accents and the agreement figure is low.
@@ -479,7 +500,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--quality full\|high\|medium\|low] [--max-tris N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table with triangles before and after decimation |
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
-| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
+| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
 | `sightline styles [name]`, `sightline shapes` | materials and colors; shape, anchor and placement reference |

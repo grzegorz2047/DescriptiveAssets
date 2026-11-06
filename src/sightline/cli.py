@@ -501,6 +501,14 @@ def cmd_structure(args) -> int:
         _wrote([path])
         return EXIT_OK
     asset = _load(target, args)
+    if args.trace:
+        if pathlib.Path(target).suffix.lower() in IMAGE_SUFFIXES:
+            raise SightlineError("--trace needs an asset", hint="trace places the plates on the model: sightline structure <asset> --trace R12")
+        ids = [s.strip().upper() if s.strip().lower() != "disagree" else "disagree" for s in args.trace.split(",") if s.strip()]
+        result = st.trace_regions(asset, ids, args.index, res=args.res, depth=args.depth)
+        print(f"# {len(result['parts'])} extrude part(s) traced from {asset.name}'s reference picture; paste them under parts:")
+        sys.stdout.write(result["yaml"])
+        return EXIT_OK
     rep = st.compare_structure(asset, args.index, res=args.res)
     path = st.write_compare_png(rep, _out_dir(asset, args) / f"structure_{args.index}.png")
     if args.json:
@@ -635,7 +643,7 @@ def cmd_styles(args) -> int:
 _SHAPE_BBOX = {
     "box": "w, h, d", "sphere": "2r, 2r, 2r", "ellipsoid": "w, h, d", "cylinder": "2r, h, 2r",
     "cone": "2 max(r, top_radius), h, 2 max(r, top_radius)", "capsule": "2r, h, 2r",
-    "torus": "2(R+t), 2t, 2(R+t)", "wedge": "w, h, d",
+    "torus": "2(R+t), 2t, 2(R+t)", "wedge": "w, h, d", "extrude": "outline width, outline height, depth",
 }
 
 _SHAPES_TEXT = """\
@@ -665,7 +673,7 @@ OPERATIONS
   op: union (default)    blend: k smooth-joins with the on target (or blend_with: part), k in meters
   op: cut                subtracted, never drawn; from: [parts] | all (default: the on target); no material
 
-PART KEYS  name shape size radius height top_radius sides round thickness material at on between align
+PART KEYS  name shape size radius height top_radius sides round thickness points depth material at on between align
            offset follow rotate repeat mirror mirror_name op from blend blend_with tags
 
 VIEWS  front back left right top iso (azimuth 45, elevation 30), orbit:<azimuth>:<elevation>
@@ -683,6 +691,8 @@ def cmd_shapes(args) -> int:
         print(f"  {'':<{width}}  local bbox (w, h, d): {_SHAPE_BBOX.get(shape, '?')}")
     print("  sides: n makes a regular n-gon prism / pyramid with a flat face toward +Z; radius is the circumradius")
     print("  wedge: full height at the back (-Z), sloping to 0 at the front edge (+Z)")
+    print("  extrude: the outline's points are re-centred on their bounding box; `sightline structure <asset> --trace R12`")
+    print("           writes extrude parts traced from the reference picture's regions")
     print()
     sys.stdout.write(_SHAPES_TEXT)
     return EXIT_OK
@@ -782,6 +792,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--view", default="front", help="image only: the view it shows (default front)")
     sp.add_argument("--height", type=float, help="image only: real height in meters (sizes in m instead of %%)")
     sp.add_argument("--mask", help="image only: black/white mask PNG (default: automatic)")
+    sp.add_argument("--trace", help="asset only: print extrude parts traced from these picture regions "
+                                    "(comma-separated ids such as R12,R15, or 'disagree')")
+    sp.add_argument("--depth", type=float, default=0.03, help="--trace: plate thickness in m (default 0.03)")
     sp.add_argument("--out", help="output folder or PNG path")
     sp.add_argument("--json", action="store_true")
 

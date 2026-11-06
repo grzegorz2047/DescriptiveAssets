@@ -185,6 +185,7 @@ checks:                        # optional, see section 7
 | `capsule` | `radius`, `height` (total, ≥ 2r) | 2r, h, 2r |
 | `torus` | `radius` (ring center radius), `thickness` (tube radius); ring lies in local XZ | 2(R+t), 2t, 2(R+t) |
 | `wedge` | `size: [w,h,d]` — triangular prism along X: full height at the back face (−Z), slope down to 0 at the front edge (+Z) | w, h, d |
+| `extrude` | `points: [[x, y], ...]` (3..64, no crossings), `depth`, `round` | outline w, outline h, depth |
 
 Polygon `sides`: a regular n-gon prism (or pyramid/frustum for `cone`) with a **flat face** toward
 +Z, so a door cut into the front of an octagonal tower sits on a face. `radius` is the
@@ -913,7 +914,7 @@ sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-ce
                  [--quality full|high|medium|low] [--max-tris N] [--out PATH]
 sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit|flat] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
-sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--out DIR] [--json]
+sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
 sightline styles [name]                                   # styles, materials, palettes
@@ -1133,10 +1134,19 @@ azimuth a and −a give mirror images of symmetric objects).
   class agreement over the shared silhouette, edge/part-boundary alignment within 2 px, a verdict
   per region (`ok`, class mismatch, missing light, outside the silhouette), `splits` (parts covering
   >= 2 listed regions); `format_compare`, `write_compare_png` (`out/<asset>/structure_<i>.png`).
+- Comparison metrics: `class_agreement_areas` (pixels more than 1 px from a class border in either
+  image) and `class_agreement` (every shared pixel); `region_borders_on_part_boundaries` and
+  `part_boundaries_on_borders` (2 px); `edges_on_part_boundaries` / `part_boundaries_on_edges` against
+  every edge pixel (DETAIL). Picture classes from `even_lighting` (mirror-averaged colours when the
+  silhouette IoU >= 0.9; accents from the original); model classes from unlit material colours.
+- `trace_regions(asset, ids, index=0, res=512, depth=0.03, prefix="plate") -> {yaml, parts, report}`:
+  `extrude` parts from region outlines (Moore tracing of the smoothed region, Douglas-Peucker to <= 14
+  corners), placed on the model's surface (75th/25th depth percentile for bright/dark regions), pairs
+  as one part with `mirror: x`; front references only.
 - Tuned with `tools/structure_bench.py`: renders of the example assets (clean, outlined, and
-  blurred/noisy/JPEG) scored against the renderer's part map and depth. Means over 9 assets: edge
-  F1 0.68, true elements recovered as their own region 0.42, region purity 0.74, clear-cut material
-  class accuracy 0.76. On Blender renders of glTF sample models (`tools/blender_truth.py`):
+  blurred/noisy/JPEG) scored against the renderer's part map and depth. Means over 10 assets: edge
+  F1 0.73 (painted 0.69), true elements recovered as their own region 0.41, region purity 0.73,
+  clear-cut material class accuracy 0.75. On Blender renders of glTF sample models (`tools/blender_truth.py`):
   BrainStem edge F1 0.81, elements recovered 0.57; CesiumMilkTruck all 7 elements.
 
 ## 13. Import (`importer.py`)

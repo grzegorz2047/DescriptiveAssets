@@ -33,8 +33,10 @@ SHAPES: dict[str, tuple[tuple[str, ...], dict]] = {
     "capsule": (("radius", "height"), {}),
     "torus": (("radius", "thickness"), {}),
     "wedge": (("size",), {}),
+    "extrude": (("points", "depth"), {"round": 0.0}),
 }
-PARAM_KEYS = ("size", "radius", "height", "top_radius", "sides", "round", "thickness")
+PARAM_KEYS = ("size", "radius", "height", "top_radius", "sides", "round", "thickness", "points", "depth")
+EXTRUDE_MAX_POINTS = 64
 SHAPE_USAGE = {
     "box": "size: [w, h, d], optional round: r",
     "sphere": "radius: r",
@@ -44,6 +46,8 @@ SHAPE_USAGE = {
     "capsule": "radius: r, height: h (total, >= 2r)",
     "torus": "radius: R (ring center), thickness: t (tube radius)",
     "wedge": "size: [w, h, d] (full height at the back, slope to the front)",
+    "extrude": "points: [[x, y], ...] (an outline in the XY plane, as seen from the front: 3..64 points, no "
+               "crossing edges), depth: d (along Z), optional round: r",
 }
 
 ANCHOR_WORDS = {
@@ -142,6 +146,19 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
             if any(v <= 0 for v in value):
                 fail(key, f"size must be > 0 in every axis, got {list(value)}", "sizes are full extents in meters")
             params[key] = tuple(float(v) for v in value)
+        elif key == "points":
+            ok = isinstance(value, (list, tuple)) and 3 <= len(value) <= EXTRUDE_MAX_POINTS and all(
+                isinstance(pt, (list, tuple)) and len(pt) == 2 and all(_is_number(c) for c in pt) for pt in value)
+            if not ok:
+                fail(key, f"points must be a list of 3 to {EXTRUDE_MAX_POINTS} [x, y] pairs, got {value!r}", usage)
+            pts = np.array(value, dtype=np.float64)
+            area = 0.5 * float(np.sum(pts[:, 0] * np.roll(pts[:, 1], -1) - np.roll(pts[:, 0], -1) * pts[:, 1]))
+            if _self_intersects(pts):
+                fail(key, "the outline crosses itself", "list the corners in order around the outline")
+            if abs(area) < 1e-8:
+                fail(key, "points enclose no area (all on one line?)", "give the outline's corners in order around it")
+            center = (pts.min(axis=0) + pts.max(axis=0)) / 2.0  # the shape's local frame is its bbox center
+            params[key] = tuple((float(x), float(y)) for x, y in pts - center)
         elif key == "sides":
             if isinstance(value, bool) or not isinstance(value, int) or (value != 0 and value < 3):
                 fail(key, f"sides must be an integer >= 3, got {value!r}", "omit sides for a round shape")
@@ -167,16 +184,43 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
             limit = min(limit, params["radius"] * math.cos(math.pi / params["sides"]))
         if rnd > limit:
             fail("round", f"round {rnd:g} is larger than allowed {limit:g}", "round must be <= min(radius, height / 2)")
+    if shape == "extrude":
+        pts = np.array(params["points"])
+        limit = min(params["depth"] / 2, float((pts.max(axis=0) - pts.min(axis=0)).min()) / 2)
+        if rnd > limit:
+            fail("round", f"round {rnd:g} is larger than allowed {limit:g}", "round must be <= depth / 2 and the outline's half width")
     if shape == "capsule" and params["height"] < 2 * params["radius"] - 1e-9:
         fail("height", f"capsule height {params['height']:g} is less than 2 * radius ({2 * params['radius']:g})",
              "height is the total length including both caps; use a sphere for height = 2 * radius")
     return params
 
 
+def _self_intersects(pts: np.ndarray) -> bool:
+    """True when two non-adjacent edges of the closed polygon cross."""
+    n = len(pts)
+
+    def orient(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        for j in range(i + 2, n):
+            if i == 0 and j == n - 1:
+                continue
+            c, d = pts[j], pts[(j + 1) % n]
+            o1, o2, o3, o4 = orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b)
+            if o1 * o2 < 0 and o3 * o4 < 0:
+                return True
+    return False
+
+
 def local_half_extents(shape: str, params: dict) -> np.ndarray:
     """Half extents of the local bounding box (SPEC 4.1 table)."""
     if shape in ("box", "ellipsoid", "wedge"):
         return np.array(params["size"], dtype=np.float64) / 2.0
+    if shape == "extrude":
+        pts = np.array(params["points"], dtype=np.float64)
+        return np.array([*(pts.max(axis=0) - pts.min(axis=0)) / 2.0, params["depth"] / 2.0])
     if shape == "sphere":
         return np.full(3, params["radius"], dtype=np.float64)
     if shape in ("cylinder", "capsule"):
@@ -332,6 +376,9 @@ class Part:
             h = np.array(p["size"]) / 2.0 - r
             signs = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], dtype=np.float64)
             return signs * h, r
+        if self.shape == "extrude":
+            hz = p["depth"] / 2.0
+            return np.array([[x, y, z] for z in (-hz, hz) for x, y in p["points"]], dtype=np.float64), 0.0
         if self.shape == "wedge":
             hx, hy, hz = (v / 2.0 for v in p["size"])
             tri = [(-hy, -hz), (hy, -hz), (-hy, hz)]
@@ -358,7 +405,7 @@ class Part:
         m, pos, p = self.matrix, self.position, self.params
         a = m[:, 1]  # world direction of the local Y axis
         across = np.sqrt(np.maximum(0.0, 1.0 - a * a))  # extent factor of a unit circle in local XZ
-        polygonal = self.shape in ("box", "wedge") or (self.shape in ("cylinder", "cone") and p.get("sides"))
+        polygonal = self.shape in ("box", "wedge", "extrude") or (self.shape in ("cylinder", "cone") and p.get("sides"))
         if polygonal:
             verts, grow = self._hull_vertices()
             world = verts @ m.T

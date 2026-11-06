@@ -47,12 +47,14 @@ MERGE_EDGE = 0.35  # share of a shared boundary that lies on strong edges, below
 # two-toned), accents by chroma.
 ACCENT_C = 24.0
 DARK_FIXED = 30.0
+MATERIAL_DARK_FIXED = 50.0  # unlit material colours of a one-toned model: darker than mid grey is dark
 TWO_TONE_GAP = 18.0
 RAISED_BORDER = 0.4  # share of a bright region's boundary next to dark regions or strong edges
 SHADE_DL = 15.0  # lightness change across a region that is worth reporting
 REPORT_MIN = 0.004  # regions listed in the text report: share of the object
 REPORT_MAX = 40
 NEAR_PX = 2  # edge alignment tolerance
+CLASS_BAND = 1  # px along class borders left out of the area class agreement
 
 _HUES = ((20, "red"), (50, "orange"), (75, "yellow"), (160, "green"), (200, "cyan"), (290, "blue"), (335, "purple"), (361, "red"))
 
@@ -150,7 +152,7 @@ def edges(rgb: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, di
     return edge, mag, facts
 
 
-def _classes(lab: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, float]:
+def _classes(lab: np.ndarray, mask: np.ndarray, fixed: float = DARK_FIXED) -> tuple[np.ndarray, float]:
     """Per-pixel class: 0 dark, 1 bright, 2 accent (inside mask; -1 outside); the dark/bright threshold."""
     L = lab[..., 0]
     chroma = np.hypot(lab[..., 1], lab[..., 2])
@@ -158,7 +160,7 @@ def _classes(lab: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, float]:
     t = otsu(vals) if vals.size else DARK_FIXED
     lo, hi = vals[vals < t], vals[vals >= t]
     if lo.size == 0 or hi.size == 0 or hi.mean() - lo.mean() < TWO_TONE_GAP:
-        t = DARK_FIXED
+        t = fixed
     cls = np.where(L < t, 0, 1).astype(np.int8)
     cls[(chroma >= ACCENT_C) & (L >= 25)] = 2
     cls[~mask] = -1
@@ -200,11 +202,53 @@ ACCENT_MAX_SHARE = 0.03  # a saturated region larger than this is a colour, not 
 
 
 def regions(rgb: np.ndarray, mask: np.ndarray, edge: np.ndarray | None = None, mag: np.ndarray | None = None,
-            mode: str | None = None):
-    """Closed regions between edges: (labels (H, W) int32, -1 outside; per-pixel class; lab; facts)."""
+            mode: str | None = None, class_rgb: np.ndarray | None = None):
+    """Closed regions between edges: (labels (H, W) int32, -1 outside; per-pixel class; lab; facts).
+
+    `class_rgb` (same shape as rgb): the colours the dark/bright/accent classes are read from, e.g. a
+    picture with its one-sided lighting evened out (see `even_lighting`); edges still come from `rgb`.
+    """
     if (mode or REGION_MODE) == "rag":
         return _regions_rag(rgb, mask, edge, mag)
-    return _regions_class(rgb, mask, edge, mag)
+    return _regions_class(rgb, mask, edge, mag, class_rgb)
+
+
+SYMMETRY_MIN = 0.9  # silhouette left/right IoU from which one-sided lighting is evened out
+
+
+def silhouette_symmetry(mask: np.ndarray) -> tuple[float, float]:
+    """(left/right IoU of the mask mirrored about its bbox centre, that centre's x in pixels)."""
+    ys, xs = np.nonzero(mask)
+    if not xs.size:
+        return 0.0, 0.0
+    c = (xs.min() + xs.max()) / 2.0
+    mx = np.round(2 * c - xs).astype(int)
+    ok = (mx >= 0) & (mx < mask.shape[1])
+    mirrored = np.zeros_like(mask)
+    mirrored[ys[ok], mx[ok]] = True
+    inter = (mirrored & mask).sum()
+    return float(inter / max(1, (mirrored | mask).sum())), float(c)
+
+
+def even_lighting(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
+    """For a left/right symmetric object: the picture averaged with its mirror image (inside both
+    silhouettes), so light falling from one side no longer turns one side's material dark. None when the
+    silhouette is not symmetric enough (then the materials may really differ between the sides)."""
+    sym, c = silhouette_symmetry(mask)
+    if sym < SYMMETRY_MIN:
+        return None
+    H, W = mask.shape
+    xs = np.arange(W)
+    mx = np.round(2 * c - xs).astype(int)
+    ok = (mx >= 0) & (mx < W)
+    mirror = np.zeros_like(rgb)
+    mirror[:, ok] = rgb[:, mx[ok]]
+    mmask = np.zeros_like(mask)
+    mmask[:, ok] = mask[:, mx[ok]]
+    out = rgb.astype(np.float32).copy()
+    both = mask & mmask
+    out[both] = (rgb[both].astype(np.float32) + mirror[both].astype(np.float32)) / 2.0
+    return out
 
 
 def _region_stats(labels: np.ndarray, lab: np.ndarray, n: int):
@@ -350,13 +394,20 @@ def _regions_rag(rgb, mask, edge=None, mag=None):
     return labels.astype(np.int32), cls, lab, {"dark_threshold_L": round(t, 1), "regions": n}
 
 
-def _regions_class(rgb: np.ndarray, mask: np.ndarray, edge: np.ndarray | None = None, mag: np.ndarray | None = None):
+def _regions_class(rgb: np.ndarray, mask: np.ndarray, edge: np.ndarray | None = None, mag: np.ndarray | None = None,
+                   class_rgb: np.ndarray | None = None):
     if not mask.any():
         raise SightlineError("no object pixels to analyse", hint="the picture's mask is empty")
     if edge is None or mag is None:
         edge, mag, _ = edges(rgb, mask)
     lab = ref_mod.srgb_to_lab(rgb.astype(np.float32) / 255.0).astype(np.float32)
-    cls, t = _classes(lab, mask)
+    clab = lab if class_rgb is None else ref_mod.srgb_to_lab(np.asarray(class_rgb, np.float32) / 255.0).astype(np.float32)
+    cls, t = _classes(clab, mask)
+    if class_rgb is not None:  # evened colours decide dark/bright only: lights and decals come from the picture itself
+        acc_orig = _classes(lab, mask)[0] == 2
+        was_acc = cls == 2
+        cls[was_acc] = np.where(clab[..., 0][was_acc] < t, 0, 1)
+        cls[acc_orig] = 2
     barrier = _dilate(edge) & mask
     # Components of each class separately (a plate ends where the dark frame starts, even without a
     # closed edge), cut further by the edges; edge pixels then join the nearest region.
@@ -753,6 +804,7 @@ def _grid_coords(asset, view: str, res: int, model_grid: np.ndarray):
         return c_v + (H / 2.0 - (np.asarray(py, dtype=np.float64) - pt)) * mpp
 
     names = (hax[0] if hax[1] > 0 else f"-{hax[0]}", vax[0])
+    _grid_coords.last = {"vb": vb, "pl": pl, "pt": pt, "camera": cam}
     return h_of, v_of, mpp, names
 
 
@@ -766,16 +818,35 @@ def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = 
     pic = np.clip(m.ref_rgb, 0.0, 1.0).astype(np.float32) * 255.0
     R_, M_ = m.ref, m.model
     edge, mag, efacts = edges(pic, R_)
-    labels, cls, lab, rfacts = regions(pic, R_, edge, mag)
+    evened = even_lighting(pic, R_)
+    labels, cls, lab, rfacts = regions(pic, R_, edge, mag, class_rgb=evened)
+    rfacts["lighting_evened"] = evened is not None
     h_of, v_of, mpp, axes = _grid_coords(asset, view, res, M_)
     regs = describe_regions(labels, cls, lab, pic, edge, h_of, v_of)
     # model classes from its flat-lit render, split by its own Otsu (both images are lit)
-    mlab = ref_mod.srgb_to_lab(np.clip(m.lambert, 0, 1)).astype(np.float32)
-    mcls, _ = _classes(mlab, M_)
+    # the model's classes come from its materials' own colours: the picture's lighting is not the style's
     part = m.part
+    parts_all = asset.scene().parts
+    base = np.zeros(m.lambert.shape, dtype=np.float32)
+    for pi in np.unique(part[part >= 0]):
+        mat = parts_all[int(pi)].material
+        base[part == pi] = asset.style.material(mat).color if mat else (0.5, 0.5, 0.5)
+    mlab = ref_mod.srgb_to_lab(np.clip(base, 0, 1)).astype(np.float32)
+    mcls, _ = _classes(mlab, M_, fixed=MATERIAL_DARK_FIXED)
     parts = asset.scene().parts
     both = R_ & M_
     agree = (cls[both] == mcls[both]).mean() if both.any() else 0.0
+    # Materials of areas, apart from where the borders are (DIVISIONS measures those): leave out the pixels
+    # within CLASS_BAND px of a class border in either image.
+    def _class_border(c):
+        b = np.zeros(c.shape, dtype=bool)
+        b[:, 1:] |= c[:, 1:] != c[:, :-1]
+        b[:, :-1] |= c[:, 1:] != c[:, :-1]
+        b[1:, :] |= c[1:, :] != c[:-1, :]
+        b[:-1, :] |= c[1:, :] != c[:-1, :]
+        return _dilate(b, CLASS_BAND - 1) if CLASS_BAND > 1 else b
+    core = both & ~_class_border(np.where(R_, cls, -1)) & ~_class_border(np.where(M_, mcls, -1))
+    agree_core = (cls[core] == mcls[core]).mean() if core.any() else 0.0
     # edges vs model part boundaries (inside both silhouettes; outlines are `match`'s job)
     pb = np.zeros_like(M_)
     pb[:, 1:] |= (part[:, 1:] != part[:, :-1])
@@ -786,6 +857,14 @@ def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = 
     near_pb, near_pe = _dilate(pb, NEAR_PX), _dilate(pe, NEAR_PX)
     edge_hit = float((pe & near_pb).sum()) / max(1, int(pe.sum()))
     bound_hit = float((pb & near_pe).sum()) / max(1, int(pb.sum()))
+    # The picture's divisions are the borders between its regions; edges inside a region (grooves, engraving,
+    # highlights) are surface detail and are reported apart.
+    rb = np.zeros_like(R_)
+    rb[:, 1:] |= labels[:, 1:] != labels[:, :-1]
+    rb[1:, :] |= labels[1:, :] != labels[:-1, :]
+    rb &= inner
+    border_hit = float((rb & near_pb).sum()) / max(1, int(rb.sum()))
+    bound_on_border = float((pb & (_dilate(rb, NEAR_PX) | near_pe)).sum()) / max(1, int(pb.sum()))
 
     def part_label(i):
         return f"{parts[i].name} ({parts[i].material})"
@@ -840,24 +919,33 @@ def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = 
     rep = {
         "asset": asset.name, "index": index, "view": view, "res": res, "grid_mpp": round(mpp, 5), "axes": list(axes),
         "image": m.report["reference"]["image"],
-        "iou": m.report["fit"]["iou"] if "fit" in m.report else None,
+        "iou": m.report.get("iou"),
         "class_agreement": round(float(agree), 3),
+        "class_agreement_areas": round(float(agree_core), 3),
         "edges_on_part_boundaries": round(edge_hit, 3),
         "part_boundaries_on_edges": round(bound_hit, 3),
+        "region_borders_on_part_boundaries": round(border_hit, 3),
+        "part_boundaries_on_borders": round(bound_on_border, 3),
         "edges": efacts, "region_facts": rfacts, "regions": regs, "splits": splits,
         "summary": _summary(regs, edge, R_),
     }
     rep["_arrays"] = {"pic": pic, "ref": R_, "model": M_, "labels": labels, "cls": cls, "mcls": mcls, "edge": edge,
                       "pb": pb, "lambert": m.lambert, "part": part}
+    rep["_trace"] = {"h_of": h_of, "v_of": v_of, **_grid_coords.last}
     return rep
 
 
 def format_compare(rep: dict) -> str:
     h, v = rep["axes"]
     lines = [f"STRUCTURE  {rep['asset']}  reference[{rep['index']}] {rep['image']}  view {rep['view']}  grid 1 px = {rep['grid_mpp']:.4f} m"]
-    lines.append(f"CLASSES    dark/bright/accent agree on {rep['class_agreement']:.0%} of the shared silhouette")
-    lines.append(f"DIVISIONS  {rep['edges_on_part_boundaries']:.0%} of the picture's inner edges have a model part boundary within {NEAR_PX} px;"
-                 f" {rep['part_boundaries_on_edges']:.0%} of the model's part boundaries lie on a picture edge")
+    lines.append(f"CLASSES    dark/bright/accent agree on {rep['class_agreement_areas']:.0%} of the areas "
+                 f"({rep['class_agreement']:.0%} of every shared pixel, {CLASS_BAND} px class borders included)")
+    lines.append(f"DIVISIONS  {rep['region_borders_on_part_boundaries']:.0%} of the picture's region borders have a model part boundary "
+                 f"within {NEAR_PX} px; {rep['part_boundaries_on_borders']:.0%} of the model's part boundaries lie on a picture "
+                 f"border or edge")
+    lines.append(f"DETAIL     {rep['edges_on_part_boundaries']:.0%} of all the picture's inner edges (grooves and lines inside "
+                 f"elements too) have a model part boundary within {NEAR_PX} px; {rep['part_boundaries_on_edges']:.0%} of the "
+                 f"part boundaries lie on one")
     s = rep["summary"]
     cl = ", ".join(f"{k} {v_:.0%}" for k, v_ in s["classes"].items())
     lines.append(f"REGIONS    {s['count']} in the picture ({cl}); {s['pairs']} left/right pairs; {s['accents']} lights or decals")
@@ -914,3 +1002,213 @@ def write_compare_png(rep: dict, path) -> pathlib.Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     out.save(path)
     return path
+
+
+
+# ----------------------------------------------------------------------------- tracing regions into parts
+
+TRACE_MAX_POINTS = 14
+TRACE_EPS_PX = 2.5
+TRACE_SMOOTH = 2  # closing then opening by this many px before tracing: pixel noise out of the outline  # Douglas-Peucker tolerance to start from (grows until the outline fits TRACE_MAX_POINTS)
+TRACE_SINK = 0.01  # a traced plate sinks this far into the surface it sits on (it must touch it)
+TRACE_FLUSH = 0.004  # a traced dark (recessed) region stands only this far out of the surface
+
+
+def outline(mask: np.ndarray) -> np.ndarray:
+    """Outer contour of the largest 4-connected piece of `mask` as (K, 2) pixel (col, row) points, clockwise
+    on screen (Moore-neighbour tracing)."""
+    labels, sizes = ref_mod.label_components(mask)
+    if not sizes.size:
+        return np.zeros((0, 2))
+    m = np.zeros((mask.shape[0] + 2, mask.shape[1] + 2), dtype=bool)
+    m[1:-1, 1:-1] = labels == int(np.argmax(sizes))
+    ys, xs = np.nonzero(m)
+    k = np.lexsort((xs, ys))[0]
+    start = (int(ys[k]), int(xs[k]))
+    nb = [(0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1)]  # clockwise from west
+    pts = [start]
+    cur, back = start, 0  # the west neighbour of the start is background
+    for _ in range(8 * int(m.sum()) + 16):
+        nxt = None
+        for i in range(1, 9):
+            d = (back + i) % 8
+            y, x = cur[0] + nb[d][0], cur[1] + nb[d][1]
+            if m[y, x]:
+                nxt, prev_d = (y, x), (back + i - 1) % 8
+                break
+        if nxt is None:  # a single pixel
+            break
+        by, bx = cur[0] + nb[prev_d][0], cur[1] + nb[prev_d][1]
+        back = nb.index((by - nxt[0], bx - nxt[1]))
+        cur = nxt
+        if cur == start:
+            break
+        pts.append(cur)
+    a = np.array(pts, dtype=np.float64) - 1.0
+    return a[:, ::-1]  # (col, row)
+
+
+def smooth_mask(mask: np.ndarray, n: int = TRACE_SMOOTH) -> np.ndarray:
+    """Morphological closing then opening (n px): fills notches and drops one-pixel spurs."""
+    m = mask.copy()
+    for _ in range(n):
+        m = ref_mod._dilate(m)
+    for _ in range(n):
+        m = ref_mod._erode(m)
+    o = m.copy()
+    for _ in range(n):
+        o = ref_mod._erode(o)
+    for _ in range(n):
+        o = ref_mod._dilate(o)
+    return o if o.any() else m
+
+
+def _rdp(points: np.ndarray, eps: float) -> np.ndarray:
+    if len(points) < 3:
+        return points
+    a, b = points[0], points[-1]
+    ab = b - a
+    n = np.hypot(*ab)
+    rel = points - a
+    d = np.abs(ab[0] * rel[:, 1] - ab[1] * rel[:, 0]) / n if n > 0 else np.hypot(rel[:, 0], rel[:, 1])
+    i = int(np.argmax(d))
+    if d[i] <= eps:
+        return np.array([a, b])
+    left = _rdp(points[:i + 1], eps)
+    right = _rdp(points[i:], eps)
+    return np.vstack([left[:-1], right])
+
+
+def simplify(contour: np.ndarray, eps: float = TRACE_EPS_PX, max_points: int = TRACE_MAX_POINTS) -> np.ndarray:
+    """Closed-contour Douglas-Peucker: split at the point farthest from the first, simplify both halves;
+    the tolerance grows until the polygon has at most `max_points` corners."""
+    if len(contour) <= 3:
+        return contour
+    far = int(np.argmax(np.hypot(*(contour - contour[0]).T)))
+    while True:
+        a = _rdp(contour[:far + 1], eps)
+        b = _rdp(np.vstack([contour[far:], contour[:1]]), eps)
+        poly = np.vstack([a[:-1], b[:-1]])
+        if len(poly) <= max_points or eps > 50:
+            return poly
+        eps *= 1.4
+
+
+def _class_materials(asset, rep) -> dict[str, str]:
+    """Material to use for a traced region of each class: the model's material covering most pixels of that
+    class in the comparison, else a sensible default from the style."""
+    a = rep["_arrays"]
+    part, mcls, M_ = a["part"], a["mcls"], a["model"]
+    parts = asset.scene().parts
+    out = {}
+    for c, name in enumerate(CLASS_NAMES):
+        sel = M_ & (mcls == c) & (part >= 0)
+        if sel.any():
+            ids, cnt = np.unique(part[sel], return_counts=True)
+            by_mat: dict[str, int] = {}
+            for i, n in zip(ids, cnt):
+                mat = parts[int(i)].material
+                if mat:
+                    by_mat[mat] = by_mat.get(mat, 0) + int(n)
+            if by_mat:
+                out[name] = max(by_mat, key=by_mat.get)
+    mats = asset.style.materials
+    out.setdefault("bright", "metal" if "metal" in mats else "paint_white")
+    out.setdefault("dark", "iron" if "iron" in mats else "paint_black")
+    out.setdefault("accent", next((m for m in ("glow_blue", "lamp", "gold") if m in mats), out["bright"]))
+    return out
+
+
+def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.03, prefix: str = "plate") -> dict:
+    """Extrude parts traced from the reference picture's regions (front view): outline in meters, placed on
+    the model's surface at that spot, material by the region's class. Returns {yaml, parts, report}."""
+    if not (isinstance(depth, (int, float)) and 0.002 <= depth <= 1.0):
+        raise SightlineError(f"depth must be 0.002..1 m, got {depth!r}")
+    rep = compare_structure(asset, index, res)
+    if rep["view"] != "front":
+        raise SightlineError(f"tracing works on front references, this one is '{rep['view']}'",
+                             hint="add a front picture as a reference, or place the parts by hand")
+    regs = {r["id"]: r for r in rep["regions"]}
+    want = []
+    for key in ids:
+        if key == "disagree":
+            want += [r["id"] for r in rep["regions"] if r.get("verdict") and not r["verdict"].startswith("ok")
+                     and "outside" not in r["verdict"]]
+        elif key in regs:
+            want.append(key)
+        else:
+            raise SightlineError(f"no region {key} in the picture", hint=f"regions are R1..R{len(regs)}; run sightline structure first")
+    a, tr = rep["_arrays"], rep["_trace"]
+    labels, vb, pl, pt = a["labels"], tr["vb"], tr["pl"], tr["pt"]
+    h_of, v_of = tr["h_of"], tr["v_of"]
+    mats = _class_materials(asset, rep)
+    point_z = vb.point[..., 2]
+    front_z = float(np.median(point_z[vb.hit])) if vb.hit.any() else 0.0
+    done, parts_out, lines = set(), [], []
+    for rid in want:
+        if rid in done:
+            continue
+        r = regs[rid]
+        pair = r.get("pair")
+        mirror = bool(pair and pair in want)
+        if mirror and r["center"][0] > 0:  # write the -x one with mirror: x
+            r, rid = regs[pair], pair
+        done.add(rid)
+        if mirror:
+            done.add(r["pair"])
+        mask = smooth_mask(labels == r["label"])
+        poly_px = simplify(outline(mask))
+        if len(poly_px) < 3:
+            continue
+        xs_m = h_of(poly_px[:, 0] + 0.5)
+        ys_m = v_of(poly_px[:, 1] + 0.5)
+        pts = np.stack([xs_m, ys_m], axis=1)
+        from .model import _self_intersects
+        if _self_intersects(pts):  # fall back to the convex hull
+            pts = _hull(pts)
+        cx, cy = (pts.min(axis=0) + pts.max(axis=0)) / 2.0
+        rows, cols = np.nonzero(mask)
+        vr, vc = rows - pt, cols - pl
+        ok = (vr >= 0) & (vr < vb.hit.shape[0]) & (vc >= 0) & (vc < vb.hit.shape[1])
+        vr, vc = vr[ok], vc[ok]
+        hit = vb.hit[vr, vc]
+        cls = "accent" if r["class"].startswith("accent") else r["class"]
+        q = 0.25 if cls == "dark" else 0.75  # a recessed region sits on the deeper surface it shows
+        zf = float(np.quantile(point_z[vr[hit], vc[hit]], q)) if hit.any() else front_z
+        if cls == "dark":  # frame and gaps are recessed: only TRACE_FLUSH proud, so lights and joints stay in front
+            cz = zf + TRACE_FLUSH - depth / 2.0
+        else:
+            cz = zf + depth / 2.0 - min(TRACE_SINK, depth / 2.0)
+        name = f"{prefix}_{rid.lower()}" + ("_l" if mirror else "")
+        rel = pts - [cx, cy]
+        pts_txt = ", ".join(f"[{x:.3f}, {y:.3f}]" for x, y in rel)
+        lines += [f"  - name: {name}                 # traced from picture region {rid}"
+                  + (f" (pair {r['pair']})" if mirror else "") + f": {r['class']}, {r['relief']}",
+                  "    shape: extrude", f"    points: [{pts_txt}]", f"    depth: {depth:g}",
+                  f"    round: {min(0.004, depth / 4):g}", f"    material: {mats[cls]}",
+                  f"    at: [{cx:.3f}, {cy:.3f}, {cz:.3f}]"] + (["    mirror: x"] if mirror else [])
+        parts_out.append({"name": name, "region": rid, "points": rel.tolist(), "at": [cx, cy, cz],
+                          "material": mats[cls], "mirror": mirror})
+    yaml = "\n".join(lines) + ("\n" if lines else "")
+    return {"yaml": yaml, "parts": parts_out, "report": rep}
+
+
+def _hull(pts: np.ndarray) -> np.ndarray:
+    """Convex hull (monotone chain), counter-clockwise."""
+    p = sorted(map(tuple, pts))
+    if len(p) < 3:
+        return np.array(p)
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for q in p:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
+            lower.pop()
+        lower.append(q)
+    for q in reversed(p):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
+            upper.pop()
+        upper.append(q)
+    return np.array(lower[:-1] + upper[:-1])

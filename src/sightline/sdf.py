@@ -151,6 +151,41 @@ def wedge(x, y, z, hx: float, hy: float, hz: float):
     return _extrude(d2, np.abs(x) - hx)
 
 
+def polygon2(x, y, verts) -> np.ndarray:
+    """Signed distance to a simple 2D polygon (verts (E, 2), any winding; negative inside; exact)."""
+    v = np.asarray(verts, dtype=np.float64)
+    shape = np.shape(x)
+    px = np.asarray(x, dtype=np.float32).reshape(-1)
+    py = np.asarray(y, dtype=np.float32).reshape(-1)
+    d2 = (px - F32(v[0, 0])) ** 2 + (py - F32(v[0, 1])) ** 2
+    inside = np.zeros(px.shape, dtype=bool)
+    n = len(v)
+    for i in range(n):
+        ax, ay = v[i]
+        bx, by = v[(i + 1) % n]
+        ex, ey = F32(bx - ax), F32(by - ay)
+        wx, wy = px - F32(ax), py - F32(ay)
+        ee = float(ex * ex + ey * ey)
+        t = np.clip((wx * ex + wy * ey) / F32(ee if ee > 0 else 1.0), 0.0, 1.0)
+        dx, dy = wx - ex * t, wy - ey * t
+        d2 = np.minimum(d2, dx * dx + dy * dy)
+        # crossing number: the edge straddles the horizontal line through p, to the right of p
+        up = (py >= F32(ay)) & (py < F32(by))
+        down = (py < F32(ay)) & (py >= F32(by))
+        cross = ex * wy - ey * wx
+        inside ^= (up & (cross > 0)) | (down & (cross < 0))
+    d = np.sqrt(d2)
+    return np.where(inside, -d, d).astype(np.float32).reshape(shape)
+
+
+def extrude(x, y, z, verts, hz: float, r: float = 0.0):
+    """A 2D polygon in the XY plane extruded over |z| <= hz, edges rounded by r (exact for r = 0)."""
+    d2 = polygon2(x, y, verts)
+    if r > 0.0:
+        return _extrude(d2 + F32(r), np.abs(z) - F32(hz - r)) - F32(r)
+    return _extrude(d2, np.abs(z) - F32(hz))
+
+
 def smin(a, b, k: float):
     """Polynomial smooth minimum with radius k (k <= 0: hard min). 1-Lipschitz, <= min(a, b)."""
     if k <= 0.0:
@@ -180,6 +215,8 @@ def primitive(shape: str, params: dict, x, y, z):
     if shape == "wedge":
         hx, hy, hz = params["size"]
         return wedge(x, y, z, hx * 0.5, hy * 0.5, hz * 0.5)
+    if shape == "extrude":
+        return extrude(x, y, z, params["points"], params["depth"] * 0.5, params["round"])
     raise ValueError(f"unknown shape {shape!r}")
 
 

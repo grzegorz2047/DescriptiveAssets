@@ -126,8 +126,14 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
    FINDINGS largest first, split the parts SPLITS names, and watch `CLASSES` and `DIVISIONS` rise.
    Use `sightline structure refs/picture.png --height M` before building: its region list (ids,
    sizes and positions in meters, left/right pairs, a relief guess, every light) is the parts list
-   of the concept. `assets/robot.yaml` was rebuilt this way: classes 60% -> 67%, disagreeing regions
-   27 -> 11, agreeing 35 -> 50, at the same IoU.
+   of the concept.
+   - Primitives cannot follow angular, faceted plates. Trace them: `sightline structure <asset>
+     --trace R12,R15` prints `extrude` parts with the regions' outlines, placed on your model's
+     surface; paste them under `parts:`. Keep the body under the plates in the frame's dark material,
+     so the silver comes from the traced plates exactly where the picture has it.
+   - `assets/robot.yaml` went this way from outline IoU 0.89 / area classes 69% / region borders 43%
+     (v1, primitives only) to 0.91 / 93% / 91% (plates traced, body dark, outline fixed from the
+     red/blue overlay of `match`). `out/robot/increments_all.png` shows every step.
    - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
      into `refs/` (save as RGBA PNG), or the background turns black.
    - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and

@@ -141,6 +141,12 @@ liczby z liczbami.
    `sightline structure refs/obrazek.png --height 1.9` rozkłada sam obrazek na listę elementów
    (płyty, rama, światła) z wymiarami w metrach i parami lewa–prawa.
 
+**Płyty prosto z obrazka.** Bryła `extrude` to dowolny obrys (wielokąt) wyciągnięty na grubość —
+kanciaste płyty, tarcze, ostrza, emblematy. `sightline structure robot --trace R12,R15` sam obrysowuje
+wskazane elementy obrazka i wypisuje gotowe części w metrach, ustawione na powierzchni modelu.
+Robot z przykładów doszedł tak od 69% do 93% zgodności materiałów i od 43% do 91% zgodności podziałów
+z konceptem (`out/robot/increments_all.png` pokazuje każdy krok).
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z

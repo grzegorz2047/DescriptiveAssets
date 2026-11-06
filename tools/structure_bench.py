@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from sightline import loader, render, structure as S, reference as R  # noqa: E402
 
 TOL = 2
+EVEN = True  # even out one-sided lighting on symmetric pictures before reading classes
 CREASE_DEG = 25.0
 
 
@@ -118,7 +119,7 @@ def near(m: np.ndarray, n: int) -> np.ndarray:
 
 def score(rgb, cov, vis, elem, depth, base, mpp):
     edge, mag, _ = S.edges(rgb, cov)
-    labels, cls, lab, _ = S.regions(rgb, cov, edge, mag)
+    labels, cls, lab, _ = S.regions(rgb, cov, edge, mag, class_rgb=S.even_lighting(rgb, cov) if EVEN else None)
     inner = R._erode(R._erode(cov))
     t_edge = vis & inner
     p = edge & inner

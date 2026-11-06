@@ -1,0 +1,121 @@
+"""The extrude shape: a 2D outline extruded along Z (SDF, validation, bounds, loading, render, export)."""
+
+import pathlib
+import re
+import shutil
+
+import numpy as np
+import pytest
+
+from sightline import sdf
+from sightline.errors import SightlineError
+from sightline.export import build_meshes, edge_report
+from sightline.loader import load_asset_text
+from sightline.model import make_part, normalize_params
+from sightline.render import render_raw
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+TMP = ROOT / "out" / "test_tmp" / "extrude"
+L_SHAPE = [[0, 0], [0.4, 0], [0.4, 0.1], [0.1, 0.1], [0.1, 0.3], [0, 0.3]]
+
+
+def _inside(px, py, poly):
+    """Reference point-in-polygon (even-odd ray casting)."""
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        (ax, ay), (bx, by) = poly[i], poly[(i + 1) % n]
+        if (ay > py) != (by > py) and px < (bx - ax) * (py - ay) / (by - ay) + ax:
+            inside = not inside
+    return inside
+
+
+def _seg_dist(px, py, poly):
+    best = np.inf
+    n = len(poly)
+    for i in range(n):
+        a, b = np.array(poly[i], float), np.array(poly[(i + 1) % n], float)
+        e, w = b - a, np.array([px, py]) - a
+        t = np.clip(w @ e / (e @ e), 0, 1)
+        best = min(best, np.hypot(*(w - e * t)))
+    return best
+
+
+@pytest.mark.parametrize("poly", [L_SHAPE, L_SHAPE[::-1], [[0, 0], [1, 0.2], [0.3, 0.9], [0.5, 0.3]]])
+def test_polygon_distance_matches_brute_force(poly):
+    rng = np.random.default_rng(3)
+    pts = rng.uniform(-0.3, 1.2, (400, 2))
+    d = sdf.polygon2(pts[:, 0].astype(np.float32), pts[:, 1].astype(np.float32), np.array(poly, float))
+    for (x, y), got in zip(pts, d):
+        want = _seg_dist(x, y, poly) * (-1 if _inside(x, y, poly) else 1)
+        assert got == pytest.approx(want, abs=1e-5)
+
+
+def test_extrude_distances_and_bounds():
+    p = make_part("l", "extrude", {"points": L_SHAPE, "depth": 0.1}, [0, 0, 0])
+    assert p.local_half == pytest.approx([0.2, 0.15, 0.05])  # the outline is re-centred on its bbox
+    q = np.array([[0, 0, 0], [-0.15, -0.1, 0], [0, 0, 0.2], [-0.15, -0.1, 0.06]], np.float32)
+    assert p.sdf(q) == pytest.approx([0.05, -0.05, np.hypot(0.05, 0.15), 0.01], abs=1e-5)
+    r = make_part("r", "extrude", {"points": L_SHAPE, "depth": 0.1}, [1, 2, 3], rotate_deg=(0, 90, 0))
+    lo, hi = r.world_aabb()
+    assert lo == pytest.approx([0.95, 1.85, 2.8]) and hi == pytest.approx([1.05, 2.15, 3.2])
+    rounded = make_part("o", "extrude", {"points": L_SHAPE, "depth": 0.1, "round": 0.02}, [0, 0, 0])
+    corner = np.array([[0.2 + 0.05, 0.15 + 0.05, 0.05 + 0.05]], np.float32)  # outside a convex corner
+    assert rounded.sdf(corner)[0] > p.sdf(corner)[0]
+
+
+@pytest.mark.parametrize("raw, message", [
+    ({"points": [[0, 0], [1, 0]], "depth": 0.1}, "list of 3 to 64"),
+    ({"points": [[0, 0], [1, 0], [2, 0]], "depth": 0.1}, "no area"),
+    ({"points": [[0, 0], [1, 1], [1, 0], [0, 1]], "depth": 0.1}, "crosses itself"),
+    ({"points": L_SHAPE, "depth": 0}, "depth must be > 0"),
+    ({"points": L_SHAPE, "depth": 0.1, "round": 0.06}, "round 0.06 is larger"),
+    ({"points": L_SHAPE, "depth": 0.1, "size": [1, 1, 1]}, "does not take 'size'"),
+])
+def test_extrude_validation(raw, message):
+    with pytest.raises(SightlineError, match=re.escape(message)):
+        normalize_params("extrude", raw)
+
+
+@pytest.fixture
+def scratch(request):
+    safe = re.sub(r"[^A-Za-z0-9_]+", "_", request.node.name).strip("_")[:60]
+    path = TMP / safe
+    shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True)
+    return path
+
+
+ASSET = """\
+asset: shield
+style: default
+parts:
+  - name: base
+    shape: box
+    size: [0.8, 0.1, 0.4]
+    material: iron
+    at: [0, 0, 0]
+    align: bottom
+  - name: shield
+    shape: extrude
+    points: [[-0.25, 0.6], [0.25, 0.6], [0.3, 0.3], [0, 0.05], [-0.3, 0.3]]
+    depth: 0.04
+    round: 0.01
+    material: metal
+    on: base.top
+"""
+
+
+def test_extrude_loads_renders_and_exports_closed(scratch):
+    path = scratch / "shield.yaml"
+    asset = load_asset_text(ASSET, path, ROOT)
+    shield = next(p for p in asset.scene().parts if p.name == "shield")
+    assert shield.anchor("bottom")[1] == pytest.approx(0.1)  # sits on the base
+    vr = render_raw(asset, ["front"], 128, scale_figure=False, ground=False)["front"]
+    sid = [i for i, p in enumerate(asset.scene().parts) if p.name == "shield"][0]
+    ys, xs = np.nonzero(vr.part == sid)
+    w = (xs.max() - xs.min() + 1) * vr.mpp
+    h = (ys.max() - ys.min() + 1) * vr.mpp
+    assert w == pytest.approx(0.6, abs=0.03) and h == pytest.approx(0.55, abs=0.03)
+    meshes = build_meshes(asset, 64)
+    assert all(open_ == 0 and bad == 0 for _, open_, bad in edge_report(meshes))

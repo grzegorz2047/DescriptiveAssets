@@ -175,3 +175,42 @@ def test_cli_structure_image_and_asset(scratch, panel):
     assert "DIVISIONS" in proc.stdout and (scratch / "structure_0.png").is_file()
     proc = _run("structure", str(scratch / "panel_cli.yaml"), "--res", "5")
     assert proc.returncode == 2 and "res must be" in proc.stderr
+
+
+def test_trace_regions_writes_mirrored_extrude_plates(scratch):
+    asset = _write_asset(scratch, "panel_trace")
+    rep = st.compare_structure(asset, res=256)
+    plates = [r["id"] for r in rep["regions"] if r["class"] == "bright" and r["share"] > 0.05]
+    result = st.trace_regions(asset, plates, res=256, depth=0.03)
+    assert len(result["parts"]) == 1  # the two plates are a left/right pair: one part with mirror: x
+    part = result["parts"][0]
+    assert part["mirror"] and part["at"][0] < 0
+    pts = np.array(part["points"])
+    w, h = pts.max(axis=0) - pts.min(axis=0)
+    assert w == pytest.approx(0.81, abs=0.04) and h == pytest.approx(1.21, abs=0.04)
+    assert part["at"][1] == pytest.approx(1.3, abs=0.03)
+    assert part["at"][2] == pytest.approx(0.15 + 0.015 - 0.01, abs=0.02)  # on the plate already there, sunk 1 cm
+    text = (scratch / "panel_trace.yaml").read_text(encoding="utf-8")
+    traced = text.replace("checks:", "") + result["yaml"]
+    path = scratch / "panel_trace.yaml"
+    path.write_text(traced, encoding="utf-8")
+    loaded = load_asset(path, ROOT)
+    names = {p.name for p in loaded.scene().parts}
+    assert {part["name"], part["name"][:-2] + "_r"} <= names
+    with pytest.raises(Exception, match="no region R999"):
+        st.trace_regions(asset, ["R999"], res=256)
+
+
+def test_area_classes_and_region_borders_are_reported(scratch):
+    rep = st.compare_structure(_write_asset(scratch, "panel_metrics"), res=256)
+    assert rep["class_agreement_areas"] >= rep["class_agreement"]
+    assert rep["region_borders_on_part_boundaries"] > 0.6 and rep["part_boundaries_on_borders"] > 0.6
+    text = st.format_compare(rep)
+    assert "of the areas" in text and "region borders" in text and "DETAIL" in text
+
+
+def test_cli_trace(scratch):
+    _write_asset(scratch, "panel_cli_trace")
+    proc = _run("structure", str(scratch / "panel_cli_trace.yaml"), "--res", "256", "--trace", "R1,R2,R3", "--depth", "0.02")
+    assert proc.returncode == 0, proc.stderr
+    assert "shape: extrude" in proc.stdout and "depth: 0.02" in proc.stdout
