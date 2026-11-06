@@ -424,10 +424,14 @@ def _evaluate(ctx: _Context, e: CheckEntry) -> CheckResult:
             return _result(e, False, "n/a (not grounded)", "center of mass over the footprint",
                            "the asset does not touch the ground, so it has no support", margin=None)
         margin = m["support_margin"]
-        measured = f"center of mass {_m(margin)} m inside the footprint" if margin >= 0 else \
-            f"center of mass {_m(-margin)} m outside the footprint"
+        names = m.get("support") or []
+        on = f" (ground contacts: {insp._name_list(names)})" if names else ""
+        side = insp._TIP_WORDS.get(m.get("tips_toward"), "outside")
+        measured = f"center of mass {_m(margin)} m inside the footprint{on}" if margin >= 0 else \
+            f"center of mass {_m(-margin)} m {side} the footprint{on}"
         return _result(e, m["stable"], measured, "center of mass over the footprint",
-                       "widen the base under the center of mass or move mass back over it", margin=margin)
+                       "add a support under the center of mass (a skid, a foot) or move mass over the contacts",
+                       margin=margin, support=names)
     if kind == "size":
         return _dims_check(e, {d: float(r["size"][d]) for d in DIMS}, "")
     if kind == "part_size":

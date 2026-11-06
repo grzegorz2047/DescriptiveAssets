@@ -68,13 +68,15 @@ zmianie obręczy na stal check przechodzi).
 $ sightline inspect watchtower
 SIZE        width 2.90 m  height 8.80 m  depth 2.90 m  = 4.89 x human height (1.8 m)
 GROUND      grounded yes  min y 0.00 m  floats by 0.00 m
-MASS        volume 24.237 m3  center [0.00, 3.25, -0.01]  stable yes  support margin 1.27 m
+MASS        volume 24.237 m3  center [0.00, 3.25, -0.01]  stable yes  support margin 1.29 m
+            ground contacts: base
 CUTS        5  (removed = primitive volume inside the cut, visible = share of the carved footprint seen)
   door           0.304    94%     0%   0%  41%  shaft
-READABILITY front: ...
-   32 px  IoU 85%   lost 4: lintel, band, pole, pennant
+READABILITY front, iso: ...
+  front  32 px  IoU 85%
+                lost 4: lintel, band, pole, pennant
 WARNINGS    5
-  - at 32 px (front) these parts vanish: lintel, band, pole, pennant — make them larger or thicker ...
+  - at 32 px (front, iso) these parts vanish: lintel, band, pole, pennant, post_1, ... — make them larger ...
 ```
 
 Są też sylwetki jako siatki liter z opisem w metrach, kontakty części, kontrasty kolorów i ostrzeżenia
@@ -132,6 +134,19 @@ liczby z liczbami.
 4. Po poprawkach check `matches_reference` przechodzi (latarnia morska z przykładów: IoU 0.95).
    Uwagi przekazujesz po nazwach części: „`dome` wyżej”, „`band_3` węższy”.
 
+Kilka rzeczy, które `match` robi za agenta:
+
+- IoU liczy z dokładnych sylwetek (pole powierzchni, a nie piksele z zaokrągleniem), więc wynik
+  prawie nie zależy od rozdzielczości (±0,01 między `--res 192` a `1024`), a cienkie skrzydła nie
+  dostają fałszywego „extra”.
+- Cienkie linie z obrazka (druty, linki, pręty) zgłasza jako **thin detail** — bez sugestii, że
+  sąsiednia część jest za mała.
+- Dół obrazka kładzie na ziemi (y = 0); część wystająca pod ziemię nie przesuwa całego porównania,
+  tylko jest wymieniona w linii `ALIGN`.
+- Rozpoznaje obrazek **oświetlony** (render z cieniowaniem, zdjęcie) i wtedy nie udaje, że zmierzone
+  kolory to farba: białe skrzydła w ciemnym renderze mierzą #555a58, a nie „żelazo”. Odpowiedź
+  projektanta zapisuje się jako `lighting: lit` albo `flat` w `reference:`.
+
 ## Eksport do silnika gry
 
 ```
@@ -156,6 +171,10 @@ osobno animować lub podmieniać.
 | `street_lamp` | smukła latarnia, materiał `lamp` |
 | `lighthouse` | model dopasowany do szkicu `assets/refs/lighthouse_concept.png` |
 
+Przydatne w formacie: `between: [dolne_skrzydlo.top, gorne_skrzydlo.bottom]` stawia zastrzał
+(albo drut) od punktu do punktu — bez liczenia kątów i długości; `tags: [hidden]` oznacza część,
+która ma być niewidoczna (np. silnik w osłonie), więc raport nie ostrzega, że jej nie widać.
+
 Poziomy: `levels/courtyard.yaml` (wszystkie checki przechodzą) i `levels/broken_bridge.yaml`
 (trzy checki celowo nie przechodzą). Dokumentacja: `docs/FORMAT.md` (pełny opis formatów, po
 angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt między modułami).
@@ -167,12 +186,19 @@ angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt mi�
   animacji.
 - Renderer jest programowy (numpy, bez GPU): 256 px na widok, bez antyaliasingu i bez światła
   emitowanego (lampa to po prostu jasny kolor). Cienie na samym assecie są ostre, długi cień
-  wysokiej wieży może wypaść poza płytkę podłoża.
-- Pomiary mają rozdzielczość: sylwetki są do pół piksela za szerokie na krawędzi, „widoczność”
-  części za gęstymi kratami wychodzi zaniżona, a kontrast liczony jest z uproszczonego
-  oświetlenia (ciemniej niż na PNG). Części cieńsze niż komórka wokseli mają niedokładną objętość.
-- Dopasowanie do obrazka działa na sylwetce z jednego widoku i płaskich kolorach; zdjęcia z
-  tłem pełnym szczegółów wymagają wyciętej maski. Zgadywanie kąta (`--fit-view`) myli się przy
+  wysokiej wieży może wypaść poza płytkę podłoża. Naklejki (np. kokardy na skrzydłach) muszą
+  wystawać ponad powierzchnię o ~0,1 piksela renderu (5 mm przy 10-metrowym assecie i 256 px),
+  inaczej wygrywa część zdefiniowana wcześniej. Widoki od dołu (`orbit:30:-20`) rysują się bez
+  płytki podłoża, a `render --no-ground` usuwa ją zawsze.
+- Pomiary mają rozdzielczość: sylwetki w renderach są do pół piksela za szerokie na krawędzi
+  (`match` liczy już z dokładnych), „widoczność” części za gęstymi kratami wychodzi zaniżona, a
+  kontrast liczony jest z uproszczonego oświetlenia (ciemniej niż na PNG). Części cieńsze niż
+  komórka wokseli mają niedokładną objętość; stabilność bierze jednak punkty styku z ziemią z
+  dokładnych brył, więc okrągłe koła i cienka płoza się liczą, a ostrzeżenie wymienia, na czym
+  model stoi.
+- Dopasowanie do obrazka działa na sylwetce z jednego widoku; przy obrazku oświetlonym podaje
+  tylko kolory względne (która część jest jaśniejsza od reszty), bo farby nie da się odczytać z
+  cieniowania. Zdjęcia z tłem pełnym szczegółów wymagają wyciętej maski. Zgadywanie kąta (`--fit-view`) myli się przy
   obiektach okrągłych.
 - Eksport nie upraszcza siatek: małe, cienkie części dają dużo trójkątów (skrzynia ~400 tys. przy
   domyślnym `--max-cells 128`, warto użyć 48). Pliki `.glb` przechodzą walidator struktury

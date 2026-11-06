@@ -124,7 +124,8 @@ def test_stable(stack, overhang, balloon):
     assert res.passed and res.data["margin"] > 0.4
     res = check(overhang, "stable")
     assert not res.passed and res.data["margin"] == pytest.approx(-(1.154 - 0.2), abs=0.04)
-    assert res.measured == f"center of mass {-res.data['margin']:.2f} m outside the footprint"
+    assert res.measured == f"center of mass {-res.data['margin']:.2f} m right of (+x) the footprint (ground contacts: pillar)"
+    assert res.data["support"] == ["pillar"] and res.message.startswith("add a support under the center of mass")
     res = check(balloon, "stable")
     assert not res.passed and res.measured == "n/a (not grounded)"
 

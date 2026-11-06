@@ -583,6 +583,8 @@ PLACEMENT
   at: [x, y, z]          world point for the part's `align` anchor (default align: center)
   on: part.anchor        attach to an EARLIER part; own align defaults to the opposite anchor (top -> bottom)
   on: part@[u, v, w]     same with a normalized anchor
+  between: [A, B]        strut/wire: local +Y from A to B (anchors or [x, y, z]); length = distance,
+                         so no height (cylinder/cone/capsule) and size: [width, depth] (box/ellipsoid/wedge)
   align: anchor          which own anchor goes to `at` / `on`
   offset: [dx, dy, dz]   added after attaching (in the target's frame when following)
   follow: true|false     with on: inherit the target's rotation (default true)
@@ -598,8 +600,8 @@ OPERATIONS
   op: union (default)    blend: k smooth-joins with the on target (or blend_with: part), k in meters
   op: cut                subtracted, never drawn; from: [parts] | all (default: the on target); no material
 
-PART KEYS  name shape size radius height top_radius sides round thickness material at on align offset
-           follow rotate repeat mirror mirror_name op from blend blend_with tags
+PART KEYS  name shape size radius height top_radius sides round thickness material at on between align
+           offset follow rotate repeat mirror mirror_name op from blend blend_with tags
 
 VIEWS  front back left right top iso (azimuth 45, elevation 30), orbit:<azimuth>:<elevation>
 WORLD  meters; +Y up, +X right (east), +Z front (toward the front-view camera, south); ground y = 0

@@ -141,6 +141,7 @@ checks: [...]                  # optional (section 4)
 | `material` | required for solids, forbidden for cuts |
 | `at` | `[x, y, z]` world point for the part's `align` anchor (default `[0, 0, 0]`) |
 | `on` | `part.anchor` or `part@[u, v, w]`: attach to a point of an earlier part (an anchor is required: `on: base` is an error, write `base.top`) |
+| `between` | `[A, B]`, each a `part.anchor`, `part@[u, v, w]` or `[x, y, z]`: a strut or wire whose local +Y runs from A to B, centered on the midpoint. The length is the distance, so leave out `height` (cylinder, cone, capsule) and write `size: [width, depth]` (box, ellipsoid, wedge). Not with `at`/`on`/`align`/`follow`; `rotate` spins the part in its own frame first (e.g. `[0, 20, 0]` turns a box strut about its axis); `offset` is in the world frame |
 | `align` | which of the part's own anchors goes to `at`/`on`. Default with `at`: `center`; with `on`: the **opposite** of the target anchor (`top` → `bottom`, `top_front` → `bottom_back`, `@[0,1,1]` → `@[0,-1,-1]`) |
 | `offset` | `[dx, dy, dz]` added after attaching; in the target's frame when following |
 | `follow` | with `on`: `true` (default) inherits the target's rotation (world matrix = target @ own); `false` keeps the world frame |
@@ -152,7 +153,20 @@ checks: [...]                  # optional (section 4)
 | `from` | cuts only: `[part, ...]` or `all` (all earlier solids). Default: the `on` target. A repeated base name (`from: [window]`) means all its copies |
 | `blend` | meters: smooth union with the `on` target (or `blend_with`) |
 | `blend_with` | the part to blend with when it is not the `on` target |
-| `tags` | free text, e.g. `[door]`, `[walkable]` |
+| `tags` | free text, e.g. `[door]`, `[walkable]`. `hidden` marks a part or cut that is meant to be out of sight (an interior or underside part): no low-visibility warning for it |
+
+A strut between two wings, without trigonometry:
+
+```yaml
+  - name: strut_l
+    shape: box
+    size: [0.09, 0.14]               # width, depth: the length comes from the two points
+    material: wood
+    between: ["wing_lower@[-0.66, 1, 0.5]", "wing_upper@[-0.53, -1, 0.5]"]
+    mirror: x
+```
+
+(Quote an `@[...]` anchor inside a flow list or mapping.)
 
 ### 3.2 Shapes
 
@@ -225,7 +239,7 @@ views and dimensions are errors. Each result line reads
 |---|---|---|
 | `grounded` | `tolerance` (max(0.02 m, half a voxel cell)) | lowest point within tolerance of y = 0 |
 | `connected` | – | no floating pieces |
-| `stable` | – | the center of mass is over the support polygon |
+| `stable` | – | the center of mass is over the support polygon: the hull of where parts touch the ground (material within 2 cm of y = 0, found on the exact shapes, so round tyres and a thin skid count); the report names the contact parts |
 | `size` | `width`/`height`/`depth`: `v` (±2%) or `[lo, hi]` | asset AABB in range |
 | `part_size` | `part`, then dims as `size` | that part's world AABB in range (cuts allowed) |
 | `symmetric` | `axis` (`x`; `x` or `z`), `min` (0.9) | occupancy IoU with its mirror image |
@@ -233,11 +247,11 @@ views and dimensions are errors. Each result line reads
 | `ratio` | `a`, `b`: `part.dim` or `total.dim`; `range: [lo, hi]` (a scalar means ±2%) | a / b in range; `total` is the whole asset |
 | `relation` | `a`, `is`, `b`; `is` ∈ above, below, left_of, right_of, in_front_of, behind, touching, inside | AABB centers compared strictly; `touching` = a report contact; `inside` = AABB containment ± one cell |
 | `contrast` | `a`, `b`, `min` (1.5) | WCAG contrast of the two parts' lit colors in iso (any pair, not only neighbours) |
-| `readable_at` | `px` (32), `min_iou` (0.8), `keep` ([]), `view` (front) | the silhouette at N px keeps its shape and the listed parts |
+| `readable_at` | `px` (32), `min_iou` (0.8), `keep` ([]), `view` (front) | the silhouette at N px keeps its shape and the listed parts (the report reads front and iso) |
 | `distinct_from` | `assets` (list or one name), `view` (front), `max_iou` (0.7) | normalized silhouette IoU with each other asset stays below |
 | `max_parts` | `n` or `{max: n}` | number of solid parts |
 | `max_materials` | `n` or `{max: n}` | number of materials used |
-| `matches_reference` | `index` (0), `min_iou` (0.85), `max_missing` (0.05) | `sightline match` IoU and missing share (section 5) |
+| `matches_reference` | `index` (0), `min_iou` (0.85), `max_missing` (0.05), `res` (256) | `sightline match` IoU and missing share at that render size (section 5) |
 
 Notes on the numbers behind the checks:
 
@@ -246,9 +260,12 @@ Notes on the numbers behind the checks:
   darker than the PNGs and dark pairs (iron on oak) score low even when the render reads well.
 - **Visible fractions** are measured at the report resolution (128 px), on the part's own
   footprint shrunk by one pixel (every silhouette is up to half a pixel wider per edge, so without
-  that a door panel set into its door cut would read low on a big building). Parts behind many
-  thin parts (bars in front of glass) can still read lower than in the 256 px PNGs. A failing
-  `visible` check names the part in front.
+  that a door panel set into its door cut would read low on a big building). Parts covering fewer
+  than 40 px are measured again on a 4× finer grid, so a small part behind a propeller blade reads
+  its real share. Parts behind many thin parts (bars in front of glass) can still read lower than in
+  the 256 px PNGs. A failing `visible` check names the part in front.
+- **Decals** (discs or plates on a face) need to stand at least ~0.1 render pixel proud of it (5 mm
+  for a 10 m asset at 256 px, 2 cm at 64 px); closer than that the part defined first wins the tie.
 - **readable_at** box-filters a 256 px silhouette down to N px; a part is kept when it still owns
   at least 4 low-resolution pixels.
 - A part only seen from the back is "hidden" in every report view (front, right, top, iso);
@@ -258,10 +275,11 @@ Notes on the numbers behind the checks:
 
 ```yaml
 reference:                      # one mapping or a list of them
-  image: refs/lighthouse_concept.png   # relative to the asset file's folder, then the root
+  image: refs/lighthouse_concept.png   # relative to the asset file's folder, then the root, then root/assets
   view: front                   # a view name or {azimuth: 30, elevation: 15}
   height: 11.85                 # optional: real height (m) of the object in the picture
   mask: auto                    # auto, or a black/white PNG (white = object)
+  lighting: auto                # auto (guessed), lit (a shaded render or photo) or flat (flat paint)
 ```
 
 - **Segmentation** (`mask: auto`): PNG alpha when present; otherwise the background is the median
@@ -278,17 +296,31 @@ reference:                      # one mapping or a list of them
 - Images over 1600 px are reduced by an integer factor first.
 - `sightline ref <image>` prints mask, scale, proportions, a silhouette grid (≤ 32 × 48 cells,
   cell centers labelled), a 10-band width profile, up to 6 dominant colors with the nearest style
-  material, details thinner than 3 px, and the **unknowns**: questions the picture cannot answer,
-  each `{topic, question, default}`.
-- `sightline match <asset>` renders the model from the reference view, aligns the bottoms and the
-  best horizontal shift (`ALIGN` line), and reports IoU, `missing` (share of the picture not
-  covered by the model), `extra`, a `SIZE` line (the model's exact extent vs the picture's
-  outline at its scale), a width profile per band with a verdict, regions ≥ 1% of the picture
-  (the 1-px fringe along the other outline is not counted, so a region does not spread along the
-  whole silhouette) with their size in meters, nearest part and a hint ("too big on the top by
-  ~X m" = the region's largest extent normal to that side), a per-part color table (`reference`
-  color for flat concept art, `suggested` base color for lit pictures), a diff grid
-  (`#` both, `+` model only, `-` picture only) and `out/<asset>/match_<i>.png`.
+  material, details thinner than 3 px, a `LIGHTING` line, and the **unknowns**: questions the
+  picture cannot answer, each `{topic, question, default}`.
+- **Lighting**: a picture is *lit* (a shaded render or a photo) when its colours spread around their
+  clusters and change gently from pixel to pixel; *flat* paint keeps each region one colour. In a lit
+  picture the measured colours are the shading, not the paint (white wings can measure #555a58), so
+  the materials question says so and its default is to choose materials by what the parts are.
+  `lighting: lit|flat` in the reference (or `ref --lighting`) records the designer's answer.
+- `sightline match <asset>` renders the model from the reference view, aligns the picture's bottom
+  on the ground line y = 0 in front/side views (on the model's bottom when it floats; parts below
+  the ground are listed and ignored) and the best horizontal shift (`ALIGN` line), and reports IoU,
+  `missing` (share of the picture not covered by the model), `extra`, a `SIZE` line (the model's
+  extent vs the picture's outline at its scale), a width profile per band with a verdict, regions
+  ≥ 1% of the picture (the 1-px fringe along the other outline is not counted, so a region does not
+  spread along the whole silhouette) with their size in meters, nearest part and a hint ("too big on
+  the top by ~X m" = the region's largest extent normal to that side), a per-part color table, a
+  diff grid (`#` both, `+` model only, `-` picture only) and `out/<asset>/match_<i>.png`.
+- **Match numbers**: IoU, missing and extra are area shares of the model's exact coverage (sampled
+  on its silhouette edge, without the renderer's half-pixel widening) against the picture's
+  coverage, so thin wings and wires count with their real width and the numbers hold within about
+  ±0.01 from res 192 to 1024. Regions made of strokes up to 4 grid px wide are **thin details**
+  (wires, rods: "thin detail missing … no part needs resizing") and come after the shape errors. A
+  width verdict must survive moving the band borders by max(1.5 px, 2% of the height), else it reads
+  `ok within … (an edge runs along the band border)`. `suggested` in the color table is the
+  picture's colour for flat paint, and base × reference / rendered divided by the picture's overall
+  light for lit pictures (only parts that differ from the rest change).
 
 ## 6. Levels
 
@@ -380,13 +412,13 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | command | writes / prints |
 |---|---|
 | `sightline new <name> [--style S] [--brief TEXT] [--force]` | `assets/<name>.yaml` template (a ground part, commented examples of on/align/repeat/mirror/cut, the brief's sentences as TODO checks) |
-| `sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human]` | `out/<asset>/<view>.png` (orbit views as `orbit_30_15.png`), `parts.png`, `sheet.png` |
+| `sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human] [--no-ground]` | `out/<asset>/<view>.png` (orbit views as `orbit_30_15.png`), `parts.png`, `sheet.png`; views from below (`orbit:30:-20`) draw no ground slab |
 | `sightline inspect <asset> [--json] [--res N] [--compare a,b]` | the measured report |
 | `sightline check [<asset>...] [--json]` | PASS/FAIL per check; no names = every asset |
 | `sightline diff <asset> [--against REV\|path]` | report changes since git HEAD (or a revision or an older copy) |
 | `sightline sheet [<asset>...] [--out PATH] [--res N] [--view V]` | `out/library.png`: assets side by side at one scale with the human |
 | `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table |
-| `sightline ref <image> [--view V] [--height M] [--mask PATH] [--json]` | the reference analysis |
+| `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
 | `sightline styles [name]`, `sightline shapes` | materials and colors; shape, anchor and placement reference |
