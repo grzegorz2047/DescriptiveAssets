@@ -70,6 +70,7 @@ palette:
   black: "#27272b"
   signal_red: "#c23b30"
   lamp_yellow: "#ffe08a"
+  canvas_cream: "#e4dcc6"
   helper_grey: "#9a9da3"
 
 materials:
@@ -117,6 +118,9 @@ materials:
   paint_white: {color: white, shine: 0.15}
   paint_black: {color: black, shine: 0.15}
   paint_red:   {color: signal_red, shine: 0.15}
+  paint_blue:  {color: royal_blue, shine: 0.15}
+  # --- doped linen of early aircraft (wings, fuselage)
+  canvas:      {color: canvas_cream, shine: 0.1}
   # --- light sources (no emission in the renderer: a bright, warm, flat color)
   lamp:        {color: lamp_yellow, shine: 0.3}
   # --- engine helpers (scale figure); neutral so it never competes with the asset

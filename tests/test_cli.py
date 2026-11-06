@@ -17,7 +17,7 @@ from sightline.export import read_glb, validate_glb
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "out" / "test_tmp" / "cli"
-EXAMPLES = ("barrel", "crate", "knight", "lighthouse", "pine_tree", "street_lamp", "watchtower")
+EXAMPLES = ("barrel", "biplane", "crate", "knight", "lighthouse", "pine_tree", "street_lamp", "watchtower")
 
 
 def run(*args: str, timeout: float = 240) -> subprocess.CompletedProcess:

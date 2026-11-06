@@ -69,7 +69,7 @@ Patterns live in **part-local** coordinates, so they turn with their part. Brick
 on upward faces; planks get staggered joints and a tint per board; patterns finer than about 3 px
 fade to their mean color instead of flickering. There is no emission: a lamp is a bright color.
 
-**Default materials** (`styles/default.yaml`, 39):
+**Default materials** (`styles/default.yaml`, 41):
 
 | material | color | pattern | shine |
 |---|---|---|---|
@@ -110,6 +110,8 @@ fade to their mean color instead of flickering. There is no emission: a lamp is 
 | `paint_white` | #f1efe9 | solid | 0.15 |
 | `paint_black` | #27272b | solid | 0.15 |
 | `paint_red` | #c23b30 | solid | 0.15 |
+| `paint_blue` | #2f5fa8 | solid | 0.15 |
+| `canvas` | #e4dcc6 | solid (doped linen of early aircraft) | 0.1 |
 | `lamp` | #ffe08a | solid | 0.3 |
 | `helper` | #9a9da3 | solid (the scale figure; not for assets) | 0 |
 

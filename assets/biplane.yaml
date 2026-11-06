@@ -1,0 +1,521 @@
+asset: biplane
+brief: >
+  A WWI-era biplane built from the designer's front render (refs/biplane_front.png). Upper
+  wingspan 10 m, about 2.7 m tall on its wheels. Cream doped-linen wings and fuselage, wooden
+  N-struts and a 4-blade wooden propeller, blue-white-red roundels on the wings. Behind the
+  visible front: a fuselage about 7.5 m long tapering to a fin, rudder and tailplane, an open
+  cockpit without a pilot, a tail skid. Struts are modelled, bracing wires are skipped.
+style: default
+tags: [vehicle, aircraft]
+# Meters; +Y up, +X right, +Z = the nose (faces the front view). _l parts are on -X (the viewer's
+# left in the front view, the pilot's right wing).
+#
+# Structure: the whole airframe hangs off `fuselage`, which is pitched nose-up by 10.46 deg so the
+# aircraft sits tail-down on its wheels and the tail skid. Everything else is attached with `on:`
+# and follows that pitch, so offsets below are in the level "body frame" of the fuselage
+# (x right, y up, z forward, origin at the fuselage box center). Change the pitch in one place.
+# Animation-ready nodes on export: `propeller` (hub + 4 blades + tips blended into one mesh),
+# `wheel_l` / `wheel_r` (tyre + hub), `rudder`, `elevator`; each roundel is one node too.
+# Built from biplane_c with grafts from biplane_a (fittings seen in the picture: pitot_mast,
+# venturi_r, generator_pod; elevator; spreader bar under the hubs; split-panel upper wing) and
+# biplane_b (cut-out, headrest, rounded rudder and tailplane tips, open cowling with engine face).
+# Exported glb: about 254k triangles at the default --max-cells 128, 119k at --max-cells 64.
+parts:
+  # --- fuselage ------------------------------------------------------------------------------------
+  - name: fuselage                   # front fuselage box (engine bay + cockpit), the root; square
+    shape: box                       # section, so the rear frustum continues it without a step
+    size: [0.72, 0.72, 3.2]
+    round: 0.06
+    material: canvas
+    at: [0, 1.204, 1.2]
+    rotate: [-10.46, 0, 0]           # nose up: wheels and skid on the ground
+  - name: fuselage_rear              # square frustum tapering to the tail; local +Y points aft,
+    shape: cone                      # 3 deg up so the bottom line rises toward the tail post;
+                                     # blended into the box: one fuselage mesh on export
+    radius: 0.51                     # half-width 0.36 (sides: 4 -> radius * 0.707)
+    top_radius: 0.1
+    height: 3.0
+    sides: 4
+    material: canvas
+    on: fuselage.back
+    align: bottom
+    rotate: [-87, 0, 0]
+    blend: 0.12
+  - name: cowling                    # engine cowling, axis along z (its local top is the front face)
+    shape: cylinder
+    radius: 0.37
+    height: 0.75
+    round: 0.06
+    material: metal
+    on: fuselage.front
+    align: bottom
+    rotate: [90, 0, 0]
+  - name: cowl_mouth                 # open front of the cowling
+    shape: cylinder
+    radius: 0.31
+    height: 0.3
+    op: cut
+    on: cowling.top
+    align: center
+  - name: engine                     # dark engine face inside the open cowling
+    shape: cylinder
+    radius: 0.30
+    height: 0.2
+    material: iron
+    on: cowling.top
+    align: top
+    offset: [0, -0.1, 0]
+  - name: exhaust_l                  # tall exhaust stacks in front of the upper wing (pale in the picture)
+    shape: cylinder
+    radius: 0.09
+    height: 0.765
+    round: 0.04
+    material: metal
+    on: fuselage.center
+    align: center
+    offset: [-0.23, 0.632, 1.75]
+    mirror: x
+  - name: headrest                   # faired headrest behind the cockpit
+    shape: ellipsoid
+    size: [0.32, 0.36, 1.3]
+    material: canvas
+    on: fuselage.back
+    align: center
+    offset: [0, 0.29, -0.18]
+  - name: cockpit                    # open cockpit: a round hole in the deck behind the upper wing
+    shape: cylinder
+    radius: 0.31
+    height: 0.4
+    op: cut
+    on: fuselage@[0, 1, -0.5]
+    align: center
+  - name: coaming                    # leather rim around the cockpit
+    shape: torus
+    radius: 0.335
+    thickness: 0.025
+    material: leather
+    on: fuselage@[0, 1, -0.5]
+    align: center
+  - name: windscreen
+    shape: box
+    size: [0.36, 0.14, 0.03]
+    material: glass
+    on: fuselage@[0, 1, -0.25]
+    align: bottom
+  # --- propeller: one blend group = one animatable node ---------------------------------------
+  - name: propeller                  # hub / spinner
+    shape: ellipsoid
+    size: [0.28, 0.28, 0.34]
+    material: metal
+    on: fuselage.center
+    align: center
+    offset: [0, 0, 2.4]
+  - name: blade                      # 4 blades in an X, 20 deg blade pitch -> blade_0 .. blade_3
+    shape: box
+    size: [0.13, 0.95, 0.05]
+    round: 0.02
+    material: dark_wood
+    on: propeller.center
+    align: center
+    offset: [-0.4243, 0.4243, 0.05]  # 0.6 m out along the 45 deg diagonal
+    rotate: [0, 20, 45]
+    repeat: {count: 4, axis: z, center: propeller.center}
+    blend: 0.02
+  - name: blade_tip                  # light tips -> blade_tip_0 .. blade_tip_3
+    shape: box
+    size: [0.136, 0.16, 0.056]
+    round: 0.02
+    material: paint_white
+    on: propeller.center
+    align: center
+    offset: [-0.6930, 0.6930, 0.05]  # 0.98 m out along the same diagonal
+    rotate: [0, 20, 45]
+    repeat: {count: 4, axis: z, center: propeller.center}
+    blend: 0.01
+  # --- upper wing: flat center section on the cabane struts, then per side an inner panel and an
+  #     outer panel. 5 deg dihedral. The outer panel is set 3 deg nose-up against the inner one, so
+  #     from the front the wing reads thicker toward the tips as in the picture; the break sits over
+  #     the N-strut. The tips are raked: the leading-edge corner is rounded, the trailing edge square.
+  - name: wing_upper_center
+    shape: box
+    size: [0.9, 0.14, 1.5]
+    round: 0.04
+    material: canvas
+    on: fuselage.center
+    align: center
+    offset: [0, 0.772, 0.5]
+  - name: wing_cutout                # trailing-edge cut-out over the cockpit (pilot's upward view)
+    shape: cylinder
+    radius: 0.3
+    height: 0.4
+    op: cut
+    on: wing_upper_center.back
+    align: center
+  - name: wing_upper_l               # inner panel, 1.2 deg less incidence than the fuselage
+    shape: box
+    size: [2.0, 0.14, 1.5]
+    round: 0.06
+    material: canvas
+    on: wing_upper_center.left
+    align: right
+    rotate: [1.2, 0, -5.0]
+    mirror: x
+  - name: wing_upper_outer_l         # outer panel, twisted 3 deg nose-up against the inner panel
+    shape: box
+    size: [2.56, 0.14, 1.5]
+    round: 0.06
+    material: canvas
+    on: wing_upper_l.left
+    align: right
+    rotate: [-3.0, 0, 0]
+    mirror: x
+  - name: wing_upper_tip_corner_l    # tip, step 1: cut the square leading-edge corner off the panel
+    shape: box
+    size: [0.5, 0.3, 0.5]
+    op: cut
+    on: wing_upper_outer_l.front_left
+    align: front_left
+    mirror: x
+  - name: wing_tip_upper_l           # tip, step 2: a disc (r 0.5 m) centered on the cut's inner corner
+    shape: cylinder
+    radius: 0.5
+    height: 0.14
+    round: 0.06
+    material: canvas
+    on: wing_upper_outer_l.front_left
+    align: center
+    offset: [0.5, 0, -0.5]
+    mirror: x
+  - name: wing_tip_upper_trim_l      # tip, step 3: trim the disc to the quarter that fills the corner,
+    shape: box                       # so it meets the panel edge to edge (no overlapping faces)
+    size: [0.52, 0.3, 1.04]
+    op: cut
+    on: wing_tip_upper_l.center
+    align: left
+    mirror: x
+  - name: wing_tip_upper_trim_back_l
+    shape: box
+    size: [0.52, 0.3, 0.52]
+    op: cut
+    on: wing_tip_upper_l.center
+    align: front_right
+    mirror: x
+  # --- lower wing: one piece under the fuselage, 80% of the upper span, thin, with less incidence
+  #     than the upper wing so it reads as a thin band from the front; raked tips like the upper ---
+  - name: wing_lower
+    shape: box
+    size: [7.95, 0.08, 1.35]
+    round: 0.03
+    material: canvas
+    on: fuselage.center
+    align: center
+    offset: [0, -0.44, 0.15]
+    rotate: [3.0, 0, 0]
+  - name: wing_lower_tip_corner_l    # raked tips built like the upper ones
+    shape: box
+    size: [0.45, 0.2, 0.45]
+    op: cut
+    on: wing_lower.front_left
+    align: front_left
+    mirror: x
+  - name: wing_tip_lower_l
+    shape: cylinder
+    radius: 0.45
+    height: 0.08
+    round: 0.03
+    material: canvas
+    on: wing_lower.front_left
+    align: center
+    offset: [0.45, 0, -0.45]
+    mirror: x
+  - name: wing_tip_lower_trim_l
+    shape: box
+    size: [0.47, 0.2, 0.94]
+    op: cut
+    on: wing_tip_lower_l.center
+    align: left
+    mirror: x
+  - name: wing_tip_lower_trim_back_l
+    shape: box
+    size: [0.47, 0.2, 0.47]
+    op: cut
+    on: wing_tip_lower_l.center
+    align: front_right
+    mirror: x
+  # --- struts -------------------------------------------------------------------------------------
+  - name: cabane_front_l             # short struts fuselage -> upper center section
+    shape: box
+    size: [0.06, 0.45, 0.1]
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-0.31, 0.55, 0.85]
+    rotate: [0, 0, -3.7]
+    mirror: x
+  - name: cabane_rear_l
+    shape: box
+    size: [0.06, 0.45, 0.1]
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-0.31, 0.55, 0.15]
+    rotate: [0, 0, -3.7]
+    mirror: x
+  - name: strut_front_l              # interplane N-strut: front leg, rear leg, diagonal; the legs
+    shape: box                       # lean back with the stagger and inward at the top (as pictured)
+    size: [0.09, 1.52, 0.14]
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-2.64, 0.246, 0.675]
+    rotate: [18.7, 0, -17.0]
+    mirror: x
+  - name: strut_rear_l
+    shape: box
+    size: [0.09, 1.49, 0.14]
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-2.60, 0.246, 0.025]      # 8 cm inboard of the front leg: the strut reads wide
+    rotate: [14.8, 0, -17.0]
+    mirror: x
+  - name: strut_diag_l
+    shape: box
+    size: [0.06, 1.81, 0.1]
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-2.62, 0.246, 0.375]
+    rotate: [38.4, 0, -17.0]
+    mirror: x
+  # --- roundels: upper surface of the upper wing, lower surface of the lower wing. Each roundel is
+  #     three discs sunk into the skin, standing 2/3/4 cm proud on top and 1/1.5/2 cm below (decal-
+  #     thin discs flicker in renders and mesh with open seams). The white and red discs are blended
+  #     into the blue one: one mesh per roundel on export. Not blended into the wings on purpose: a
+  #     blend group is meshed at its thinnest member's cell, which made each wing panel ~6x heavier
+  - name: roundel_top_l
+    shape: cylinder
+    radius: 0.6
+    height: 0.06
+    material: paint_blue
+    on: wing_upper_outer_l@[0.1, 1, 0]
+    align: center
+    offset: [0, -0.01, 0]
+    mirror: x
+  - name: roundel_top_white_l
+    shape: cylinder
+    radius: 0.4
+    height: 0.08
+    material: paint_white
+    on: wing_upper_outer_l@[0.1, 1, 0]
+    align: center
+    offset: [0, -0.01, 0]
+    blend: 0.005
+    blend_with: roundel_top_l
+    mirror: x
+  - name: roundel_top_red_l
+    shape: cylinder
+    radius: 0.2
+    height: 0.1
+    material: paint_red
+    on: wing_upper_outer_l@[0.1, 1, 0]
+    align: center
+    offset: [0, -0.01, 0]
+    blend: 0.005
+    blend_with: roundel_top_l
+    mirror: x
+  - name: roundel_bottom_l
+    shape: cylinder
+    radius: 0.55
+    height: 0.05
+    material: paint_blue
+    on: wing_lower@[-0.83, -1, 0]
+    align: center
+    offset: [0, 0.015, 0]
+    mirror: x
+  - name: roundel_bottom_white_l
+    shape: cylinder
+    radius: 0.37
+    height: 0.06
+    material: paint_white
+    on: wing_lower@[-0.83, -1, 0]
+    align: center
+    offset: [0, 0.015, 0]
+    blend: 0.005
+    blend_with: roundel_bottom_l
+    mirror: x
+  - name: roundel_bottom_red_l
+    shape: cylinder
+    radius: 0.18
+    height: 0.07
+    material: paint_red
+    on: wing_lower@[-0.83, -1, 0]
+    align: center
+    offset: [0, 0.015, 0]
+    blend: 0.005
+    blend_with: roundel_bottom_l
+    mirror: x
+  # --- tail ------------------------------------------------------------------------------------------
+  - name: tailplane                  # fixed stabiliser; rounded tips and a hinged elevator behind it
+    shape: box
+    size: [1.9, 0.08, 0.6]
+    round: 0.03
+    material: canvas
+    on: fuselage.center
+    align: center
+    offset: [0, 0.087, -4.0]
+  - name: tailplane_tip_l
+    shape: ellipsoid
+    size: [0.5, 0.08, 0.6]
+    material: canvas
+    on: tailplane.left
+    align: center
+    mirror: x
+  - name: elevator                   # hinged on the tailplane's trailing edge: its own node
+    shape: box
+    size: [2.2, 0.06, 0.4]
+    round: 0.02
+    material: canvas
+    on: tailplane.back
+    align: front
+  - name: fin                        # wedge: full height at the back (rudder hinge), sloping forward
+    shape: wedge
+    size: [0.05, 0.75, 0.8]
+    material: canvas
+    on: fuselage.center
+    align: center
+    offset: [0, 0.465, -4.15]
+  - name: rudder                     # D-shaped rudder: an ellipsoid centered on the hinge line ...
+    shape: ellipsoid
+    size: [0.05, 0.95, 0.9]
+    material: canvas
+    on: fin.back
+    align: center
+    offset: [0, 0.05, 0]
+  - name: rudder_hinge_trim          # ... with its front half cut away, so the flat edge meets the fin
+    shape: box
+    size: [0.2, 1.2, 0.5]
+    op: cut
+    on: rudder.center
+    align: back
+  - name: tail_skid                  # wooden skid under the tail post
+    shape: capsule
+    radius: 0.045
+    height: 0.6
+    material: dark_wood
+    on: fuselage.center
+    align: center
+    offset: [0, -0.18, -4.165]
+    rotate: [38.2, 0, 0]
+  - name: skid_shoe                  # flat iron shoe: the tail rests on it
+    shape: box
+    size: [0.12, 0.05, 0.3]
+    round: 0.015
+    material: iron
+    on: fuselage.center
+    align: center
+    offset: [0, -0.404, -4.305]
+    rotate: [10.46, 0, 0]            # cancels the pitch: flat on the ground
+  # --- landing gear: V legs per side down to a spreader bar just under the wheel hubs -----------
+  - name: axle                       # spreader bar / axle, 5 cm below the hub centers
+    shape: cylinder
+    radius: 0.035
+    height: 1.3
+    material: iron
+    on: fuselage.center
+    align: center
+    offset: [0, -1.23, 1.236]
+    rotate: [0, 0, 90]
+  - name: gear_front_l               # wooden legs from the fuselage bottom to the bar
+    shape: cylinder
+    radius: 0.035
+    height: 0.98
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-0.3955, -0.7985, 1.3975]
+    rotate: [19.66, 0, -17.31]
+    mirror: x
+  - name: gear_rear_l
+    shape: cylinder
+    radius: 0.035
+    height: 1.16
+    material: wood
+    on: fuselage.center
+    align: center
+    offset: [-0.397, -0.8015, 0.8855]
+    rotate: [-38.0, 0, -17.24]
+    mirror: x
+  - name: wheel_l                    # tyre; spins about x
+    shape: cylinder
+    radius: 0.27
+    height: 0.12
+    round: 0.04
+    material: paint_black
+    on: fuselage.center
+    align: center
+    offset: [-0.66, -1.18, 1.245]
+    rotate: [0, 0, 90]
+    mirror: x
+  - name: wheel_hub_l                # hub cap blended into the tyre: one mesh per wheel
+    shape: cylinder
+    radius: 0.09
+    height: 0.26
+    material: metal
+    on: wheel_l.center
+    align: center
+    blend: 0.01
+    mirror: x
+  # --- fittings seen in the picture ---------------------------------------------------------------
+  - name: pitot_mast                 # dark post between the wings, viewer's left only
+    shape: cylinder
+    radius: 0.05
+    height: 1.35
+    material: iron
+    on: fuselage.center
+    align: center
+    offset: [-3.12, 0.275, 0.1]
+  - name: venturi_r                  # pale post on the right lower wing (x = +2.95 m)
+    shape: capsule
+    radius: 0.06
+    height: 0.36
+    material: metal
+    on: wing_lower@[0.75, 1, 0.3]
+    align: bottom
+  - name: generator_pod              # dark drum at the right lower-wing root
+    shape: cylinder
+    radius: 0.15
+    height: 0.9
+    material: iron
+    on: fuselage.center
+    align: center
+    offset: [0.98, -0.53, 0.75]
+    rotate: [90, 0, 0]
+reference: {image: refs/biplane_front.png, view: front, height: 2.68}
+checks:
+  - grounded: {why: "it sits on its wheels and the tail skid"}
+  - connected: {why: "no floating parts: every strut, wheel and roundel is attached"}
+  - stable: {why: "tail-down on wheels + skid, it must not tip over"}
+  - size: {width: [9.8, 10.2], height: [2.6, 2.8], depth: [7.0, 8.0], why: "upper wingspan 10 m, about 2.7 m tall on its wheels, fuselage about 7.5 m"}
+  - ratio: {a: wing_lower.width, b: total.width, range: [0.76, 0.84], why: "the lower wing spans about 80% of the upper"}
+  - symmetric: {axis: x, min: 0.95, why: "left-right symmetric airframe (the picture's 86% is the one-sided roundel and the perspective)"}
+  - visible: {part: propeller, view: front, min: 0.8, why: "the propeller faces the viewer of the front render"}
+  - visible: {part: blade_0, view: front, min: 0.6, why: "the 4-blade propeller reads from the front"}
+  - visible: {part: blade_tip_2, view: front, min: 0.6, why: "lighter tips on the propeller"}
+  - visible: {part: wheel_l, view: front, min: 0.6}
+  - visible: {part: strut_front_l, view: front, min: 0.5, why: "the wooden N-struts between the wings are modelled (bracing wires are skipped)"}
+  - visible: {part: roundel_top_red_l, view: top, min: 0.8, why: "roundels on the wings"}
+  - visible: {part: cockpit, view: top, min: 0.5, why: "an open cockpit without a pilot"}
+  - visible: {part: rudder, view: right, min: 0.8, why: "fin + rudder at the tail"}
+  - visible: {part: tail_skid, view: right, min: 0.5, why: "it sits tail-down on wheels + skid"}
+  - relation: {a: wing_upper_center, is: above, b: wing_lower}
+  - relation: {a: propeller, is: in_front_of, b: wing_upper_center}
+  - relation: {a: rudder, is: behind, b: wing_lower, why: "the fin and rudder sit at the tail"}
+  - relation: {a: tail_skid, is: behind, b: wheel_l, why: "tail-down on wheels + skid"}
+  - relation: {a: tailplane, is: below, b: wing_lower, why: "it sits tail-down on its wheels and the tail skid"}
+  - contrast: {a: roundel_top_l, b: wing_upper_outer_l, min: 2.5, why: "blue-white-red roundels on cream linen"}
+  - contrast: {a: blade_3, b: cowling, min: 2.0, why: "the dark wooden propeller reads against the cowling"}
+  - readable_at: {px: 32, view: iso, min_iou: 0.75, keep: [wing_upper_outer_l, wing_upper_outer_r, wing_lower], why: "game asset: reads as a biplane at icon size"}
+  - matches_reference: {min_iou: 0.80, max_missing: 0.12, why: "the designer's front render (measured 0.83-0.84 at res 256-768; the margin covers the res-256 pixel noise); bracing wires are skipped on purpose and make most of the missing share"}
+  - max_parts: {max: 72, why: "modest part count for a game asset"}
+  - max_materials: 12

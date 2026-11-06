@@ -113,7 +113,7 @@ render: {res: 256, views: [front, right, top, iso]}
   → the style, for the palette, the materials and every key of light/outline/ground/render.
   Default materials resolve palette names against the merged palette, so a style can recolor the
   library by overriding palette keys, and every style offers every default material.
-- `styles/default.yaml` has 39 materials (see `docs/FORMAT.md`), including `paint_red`, `lamp`
+- `styles/default.yaml` has 41 materials (see `docs/FORMAT.md`), including `paint_red`, `paint_blue`, `canvas`, `lamp`
   (a bright warm color; there is no emission) and `helper` (the scale figure).
 - `Style.material(name)` raises SightlineError with did_you_mean on unknown material.
 
