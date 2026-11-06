@@ -136,13 +136,25 @@ liczby z liczbami.
 
 ```
 sightline export knight                  # out/knight/knight.glb — glTF 2.0, osobny węzeł na każdą część
-sightline export knight --bake-colors    # + kolory wierzchołków z deseniami materiałów
+sightline export crate --max-tris 1500   # limit trójkątów na cały asset
+sightline export knight --quality high   # dokładniej: high | medium (domyślnie) | low | full
+sightline export knight --bake-colors    # + kolory wierzchołków z deseniami materiałów (pełna siatka)
 sightline export crate --format obj      # OBJ + MTL
 ```
 
 Plik `.glb` jest w metrach, oś Y w górę. Godot 4 importuje go bezpośrednio, Blender przez
 File → Import → glTF 2.0, Unity przez pakiet glTFast. Części zachowują nazwy z YAML, więc można je
 osobno animować lub podmieniać.
+
+Siatki są upraszczane (decymacja) część po części: płaskie ściany zostają z kilku trójkątów,
+krzywizny dostają tyle, ile potrzebują, a każda część pozostaje zamknięta i zachowuje nazwę,
+materiały i wymiary (z dokładnością do 5 mm). Skrzynia ma ok. 3 tys. trójkątów zamiast 400 tys.
+(plik 80 KB zamiast 9,6 MB), rycerz 2,4 tys. zamiast 71 tys. `--quality` mówi, o ile może się
+przesunąć powierzchnia: `high` 1/8, `medium` 1/4, `low` 1/2 komórki siatki; `full` wyłącza
+upraszczanie. `--max-tris` to budżet na cały asset — jeśli jakość go nie mieści, tolerancja rośnie,
+aż się zmieści. Tabela po eksporcie pokazuje trójkąty przed (`BEFORE`) i po (`TRIS`) oraz
+zmierzone odchylenie od prawdziwej powierzchni (`DEV_MM`). `--bake-colors` eksportuje pełną siatkę,
+bo kolory wierzchołków potrzebują gęstych wierzchołków.
 
 ## Przykłady
 
@@ -174,12 +186,16 @@ angielsku), `docs/AI_GUIDE.md` (jak ma pracować agent), `SPEC.md` (kontrakt mi�
 - Dopasowanie do obrazka działa na sylwetce z jednego widoku i płaskich kolorach; zdjęcia z
   tłem pełnym szczegółów wymagają wyciętej maski. Zgadywanie kąta (`--fit-view`) myli się przy
   obiektach okrągłych.
-- Eksport nie upraszcza siatek: małe, cienkie części dają dużo trójkątów (skrzynia ~400 tys. przy
-  domyślnym `--max-cells 128`, warto użyć 48). Pliki `.glb` sprawdzono walidatorem struktury, ale
-  nie otwierano ich jeszcze w Godot/Unity/Blenderze.
+- Uproszczone siatki mają wspólne wierzchołki, więc ostra krawędź cieniuje się jak wąskie
+  sfazowanie, a nie twarde załamanie. Krawędzie biegnące ukośnie do siatki (listwy skrzyni pod 45°)
+  są po surface nets lekko ząbkowane i po uproszczeniu zostaje na nich więcej trójkątów. Eksport
+  skrzyni zajmuje ok. 13 s (samo upraszczanie ok. 10 s). Pliki `.glb` skrzyni, rycerza i wieży
+  zaimportowano w Blenderze 5.2 (nazwy, wymiary, brak krawędzi non-manifold); w Godot i Unity
+  jeszcze ich nie otwierano.
 - Poziomy to siatka kolumn terenu z jednym modelem ruchu gracza; obiekt blokuje całe komórki
   swojego obrysu, w których jego bryła schodzi niżej niż wzrost gracza plus skok (pod skrzydłami
   wiatraka da się przejść, a linia wzroku przechodzi pod nimi). Eksport poziomu do glTF nie jest
   jeszcze zrobiony.
 - Eksport siatek (surface nets) może zostawić kilka krawędzi wspólnych dla czterech trójkątów
-  w wklęsłych narożnikach wycięć; `export` wypisuje je w linii `MANIFOLD`, ale ich nie naprawia.
+  w wklęsłych narożnikach wycięć; `export` wypisuje je w linii `MANIFOLD`, ale ich nie naprawia
+  (upraszczanie ich nie pogarsza).

@@ -399,14 +399,19 @@ def cmd_sheet(args) -> int:
 
 
 def cmd_export(args) -> int:
-    from .export import build_meshes, export_glb, export_obj, format_edges, merge_meshes, mesh_summary, validate_glb
+    from .export import (build_meshes, export_glb, export_obj, format_decimation, format_edges, merge_meshes,
+                         mesh_summary, resolve_quality, validate_glb)
 
     asset = _load(args.asset, args)
     fmt = args.format
     if fmt == "obj" and args.bake_colors:
         raise SightlineError("--bake-colors needs --format glb", hint="OBJ has no standard vertex colors; use glb")
+    if args.bake_colors and (args.quality not in (None, "full") or args.max_tris is not None):
+        raise SightlineError("--bake-colors needs the full mesh: vertex colors need the dense surface-nets vertices",
+                             hint="drop --quality/--max-tris (baking exports --quality full) or drop --bake-colors")
+    quality, _, _ = resolve_quality(args.quality, args.max_tris, args.bake_colors)
     out = pathlib.Path(args.out) if args.out else pathlib.Path(asset.root) / "out" / asset.name / f"{asset.name}.{fmt}"
-    meshes = build_meshes(asset, args.max_cells, args.bake_colors)
+    meshes = build_meshes(asset, args.max_cells, args.bake_colors, quality, args.max_tris)
     if fmt == "glb":
         path = export_glb(asset, out, args.max_cells, per_part=not args.merged, bake_colors=args.bake_colors,
                           meshes=meshes)
@@ -415,8 +420,11 @@ def cmd_export(args) -> int:
         path = export_obj(asset, out, args.max_cells, meshes=[merge_meshes(meshes, asset.name)] if args.merged else meshes)
         written = [path, path.with_suffix(".mtl")]
     mode = "one merged node" if args.merged else f"{len(meshes)} part nodes"
-    print(f"EXPORT  {asset.name}: {fmt}, {mode}, max_cells {args.max_cells}" + (", baked colors" if args.bake_colors else ""))
+    budget = f", max_tris {args.max_tris}" if args.max_tris is not None else ""
+    print(f"EXPORT  {asset.name}: {fmt}, {mode}, max_cells {args.max_cells}, quality {quality}{budget}"
+          + (", baked colors" if args.bake_colors else ""))
     print(mesh_summary(meshes))
+    print(format_decimation(meshes))
     print(format_edges(meshes))
     if fmt == "glb":
         problems = validate_glb(path)
@@ -666,6 +674,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--merged", action="store_true", help="one node instead of one per part")
     sp.add_argument("--bake-colors", action="store_true", help="bake material patterns into COLOR_0 (glb)")
     sp.add_argument("--max-cells", type=int, default=128, help="mesh resolution: cells on the longest side (8-512)")
+    sp.add_argument("--quality", choices=("full", "high", "medium", "low"),
+                    help="decimation: how far from the surface a part may move, 1/8 (high), 1/4 (medium, the "
+                         "default) or 1/2 (low) of its cell; full keeps every triangle (the default with --bake-colors)")
+    sp.add_argument("--max-tris", type=int, help="triangle budget for the whole asset (decimates further if needed)")
     sp.add_argument("--out", help="file or folder (default: <root>/out/<asset>/<asset>.<format>)")
 
     sp = add("ref", cmd_ref, "measure a reference picture alone (mask, proportions, colors, questions)")

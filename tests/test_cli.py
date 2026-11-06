@@ -103,12 +103,25 @@ def test_export_glb_and_obj():
     proc = run("export", "crate", "--max-cells", "48", "--out", str(out / "crate.glb"))
     assert proc.returncode == 0, proc.stderr
     assert "glTF structure OK" in proc.stdout and "total" in proc.stdout
+    assert "quality medium" in proc.stdout and "MANIFOLD  yes" in proc.stdout
+    decimate_line = next(ln for ln in proc.stdout.splitlines() if ln.startswith("DECIMATE  "))
+    before, after = (int(x) for x in decimate_line.split()[1:4:2])  # "DECIMATE  <before> -> <after> ..."
+    assert after * 10 < before
     (glb,) = wrote(proc)
     assert validate_glb(glb) == []
     doc, blob = read_glb(glb)
     names = {n["name"] for n in doc["nodes"]}
     assert {"body", "post_0", "brace_front", "brace_back"} <= names
     assert doc["asset"]["version"] == "2.0" and len(blob) > 0
+    assert sum(doc["accessors"][p["indices"]]["count"] for m in doc["meshes"] for p in m["primitives"]) == 3 * after
+    full = run("export", "crate", "--max-cells", "32", "--quality", "full", "--out", str(out / "crate_full.glb"))
+    assert full.returncode == 0, full.stderr
+    assert "DECIMATE  off" in full.stdout
+    budget = run("export", "crate", "--max-cells", "32", "--max-tris", "400", "--out", str(out / "crate_400.glb"))
+    assert budget.returncode == 0, budget.stderr
+    assert "max_tris 400" in budget.stdout
+    doc, _ = read_glb(wrote(budget)[0])
+    assert sum(doc["accessors"][p["indices"]]["count"] for m in doc["meshes"] for p in m["primitives"]) <= 3 * 400
     proc = run("export", "crate", "--format", "obj", "--merged", "--max-cells", "32", "--out", str(out))
     assert proc.returncode == 0, proc.stderr
     obj, mtl = wrote(proc)
@@ -116,6 +129,10 @@ def test_export_glb_and_obj():
     assert obj.read_text(encoding="utf-8").count("\no ") == 1  # merged: one object
     bad = run("export", "crate", "--format", "obj", "--bake-colors")
     assert bad.returncode == 2 and "needs --format glb" in bad.stderr
+    bad = run("export", "crate", "--bake-colors", "--quality", "low")
+    assert bad.returncode == 2 and "needs the full mesh" in bad.stderr
+    bad = run("export", "crate", "--max-tris", "2")
+    assert bad.returncode == 2 and "max_tris must be an integer >= 4" in bad.stderr
 
 
 def test_ref_and_match_on_the_lighthouse():

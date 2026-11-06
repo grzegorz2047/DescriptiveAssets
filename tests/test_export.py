@@ -10,19 +10,24 @@ import time
 import numpy as np
 import pytest
 
+from sightline.decimate import BBOX_TOL, SHADE_ANGLE, SHADE_WIDTH, DecimationInput, decimate, nonmanifold_vertices
 from sightline.errors import SightlineError
 from sightline.export import (
+    QUALITY,
     accessor_data,
     PartMesh,
     build_meshes,
+    decimate_meshes,
     edge_report,
     export_glb,
+    format_decimation,
     format_edges,
     export_obj,
     mesh_summary,
     read_glb,
     surface_nets,
     validate_glb,
+    vertex_normals,
 )
 from sightline.loader import load_asset, load_asset_text
 
@@ -127,8 +132,15 @@ def tower():
 
 
 @pytest.fixture(scope="module")
-def tower_meshes(tower):
-    return build_meshes(tower)
+def tower_full(tower):
+    """The surface-nets meshes as meshed (quality full)."""
+    return build_meshes(tower, quality="full")
+
+
+@pytest.fixture(scope="module")
+def tower_meshes(tower, tower_full):
+    """The default export: the same meshes decimated (quality medium), as build_meshes(tower) makes them."""
+    return decimate_meshes(tower, tower_full)
 
 
 @pytest.fixture(scope="module")
@@ -269,7 +281,7 @@ def test_read_glb_and_accessor_data_roundtrip(tower_glb, tower_meshes):
 
 @pytest.mark.parametrize("max_cells,tol", [(16, 0.02), (32, 0.01), (64, 0.005)])
 def test_sphere_closed_outward_and_volume(max_cells, tol):
-    (mesh,) = build_meshes(asset_from("sphere", SPHERE), max_cells=max_cells)
+    (mesh,) = build_meshes(asset_from("sphere", SPHERE), max_cells=max_cells, quality="full")
     pos, tris = mesh.positions.astype(np.float64), mesh.triangles.astype(np.int64)
     center = np.array([0.0, 1.0, 0.0])
     assert mesh.cell == pytest.approx(2.0 / max_cells)
@@ -300,7 +312,7 @@ def test_edge_report_finds_open_and_non_manifold_edges():
 
 def test_sphere_volume_from_the_glb_file():
     asset = asset_from("sphere", SPHERE)
-    path = export_glb(asset, OUT / "sphere.glb", max_cells=48)
+    path = export_glb(asset, OUT / "sphere.glb", max_cells=48, quality="full")
     _, doc, _, blob = parse_glb(path)
     ((pos, tris),) = glb_triangles(doc, blob)
     assert_closed(tris)
@@ -310,7 +322,7 @@ def test_sphere_volume_from_the_glb_file():
 
 
 def test_box_keeps_sharp_extents():
-    (mesh,) = build_meshes(load_asset(FIX / "box1.yaml"), max_cells=32)  # 2 x 1 x 1 m, cell 1/16 m
+    (mesh,) = build_meshes(load_asset(FIX / "box1.yaml"), max_cells=32, quality="full")  # 2 x 1 x 1 m, cell 1/16 m
     lo, hi = mesh.positions.min(axis=0), mesh.positions.max(axis=0)
     assert np.abs(lo - [-1.0, 0.0, -0.5]).max() < mesh.cell and np.abs(hi - [1.0, 1.0, 0.5]).max() < mesh.cell
     assert np.abs(lo - [-1.0, 0.0, -0.5]).max() < 0.01 * mesh.cell  # projection snaps edges and corners
@@ -328,7 +340,7 @@ def test_box_keeps_sharp_extents():
 
 def test_rotated_box_extents_within_one_cell():
     asset = asset_from("tilted", "  - {name: slab, shape: box, size: [2, 0.5, 1], material: stone, rotate: [10, 30, 0], at: [0, 1, 0]}\n")
-    (mesh,) = build_meshes(asset, max_cells=48)
+    (mesh,) = build_meshes(asset, max_cells=48, quality="full")
     lo, hi = asset.parts[0].world_aabb()
     assert np.abs(mesh.positions.min(axis=0) - lo).max() < mesh.cell
     assert np.abs(mesh.positions.max(axis=0) - hi).max() < mesh.cell
@@ -337,7 +349,7 @@ def test_rotated_box_extents_within_one_cell():
 
 
 def test_symmetric_shape_gives_symmetric_mesh():
-    (mesh,) = build_meshes(load_asset(FIX / "box1.yaml"), max_cells=24)
+    (mesh,) = build_meshes(load_asset(FIX / "box1.yaml"), max_cells=24, quality="full")
     pts = np.round(mesh.positions.astype(np.float64), 5)
     mirrored = pts * [-1, 1, 1]
     key = lambda a: a[np.lexsort(a.T[::-1])]  # noqa: E731
@@ -348,7 +360,7 @@ def test_through_cut_makes_a_hole():
     asset = asset_from("holed", "  - {name: block, shape: box, size: [2, 1, 1], material: stone, align: bottom}\n"
                                 "  - {name: hole, shape: cylinder, radius: 0.25, height: 2, rotate: [90, 0, 0], op: cut,"
                                 " from: [block], at: [0, 0.5, 0]}\n")
-    (mesh,) = build_meshes(asset, max_cells=64)
+    (mesh,) = build_meshes(asset, max_cells=64, quality="full")
     tris = mesh.triangles.astype(np.int64)
     assert_closed(tris)
     assert euler(tris) == 0  # genus 1: a tunnel through the block
@@ -363,7 +375,7 @@ def test_through_cut_makes_a_hole():
 def test_blind_cut_makes_a_recess():
     asset = asset_from("niche", "  - {name: wall, shape: box, size: [2, 2, 1], material: stone, align: bottom}\n"
                                 "  - {name: niche, shape: box, size: [0.6, 1.0, 0.4], op: cut, on: wall.front, align: center}\n")
-    (mesh,) = build_meshes(asset, max_cells=64)
+    (mesh,) = build_meshes(asset, max_cells=64, quality="full")
     assert_closed(mesh.triangles)
     assert euler(mesh.triangles.astype(np.int64)) == 2  # a recess, not a hole
     assert mesh.volume() == pytest.approx(4.0 - 0.6 * 1.0 * 0.2, rel=0.005)
@@ -386,9 +398,9 @@ def test_surface_nets_on_an_analytic_sdf():
     assert len(empty_v) == 0 and len(empty_t) == 0
 
 
-def test_tower30_meshes_closed_outward_with_measured_volumes(tower, tower_meshes):
-    by_name = {m.name: m for m in tower_meshes}
-    for m in tower_meshes:
+def test_tower30_meshes_closed_outward_with_measured_volumes(tower, tower_full):
+    by_name = {m.name: m for m in tower_full}
+    for m in tower_full:
         tris = m.triangles.astype(np.int64)
         assert_closed(tris)
         assert m.volume() > 0, m.name
@@ -401,8 +413,8 @@ def test_tower30_meshes_closed_outward_with_measured_volumes(tower, tower_meshes
     assert by_name["hoop"].volume() == pytest.approx(hoop, rel=0.1)
 
 
-def test_thin_parts_get_a_finer_cell(tower, tower_meshes):
-    by_name = {m.name: m for m in tower_meshes}
+def test_thin_parts_get_a_finer_cell(tower, tower_full):
+    by_name = {m.name: m for m in tower_full}
     base = by_name["base"].cell
     lo, hi = tower.scene().bounds(include_helpers=False)
     assert base == pytest.approx(float((hi - lo).max()) / 128)
@@ -411,7 +423,7 @@ def test_thin_parts_get_a_finer_cell(tower, tower_meshes):
     assert np.ptp(banner.positions[:, 0]) == pytest.approx(0.05, abs=0.01)
     assert banner.volume() == pytest.approx(0.05 * 1.2 * 0.6, rel=0.05)
     assert by_name["band"].cell < base and by_name["shaft"].cell == base
-    assert all(m.cell >= base / 4 - 1e-12 for m in tower_meshes)
+    assert all(m.cell >= base / 4 - 1e-12 for m in tower_full)
 
 
 def test_mirrored_parts_keep_outward_winding():
@@ -520,7 +532,7 @@ def test_obj_and_mtl(tower, tower_meshes):
 
 def test_obj_sphere_parses_back():
     asset = asset_from("sphere", SPHERE)
-    path = export_obj(asset, OUT / "sphere", max_cells=32)
+    path = export_obj(asset, OUT / "sphere", max_cells=32, quality="full")
     assert path.name == "sphere.obj" and path.with_suffix(".mtl").is_file()
     lines = path.read_text(encoding="utf-8").splitlines()
     pos = np.array([[float(x) for x in ln.split()[1:]] for ln in lines if ln.startswith("v ")])
@@ -537,6 +549,219 @@ def test_exports_are_deterministic(tower):
         pb = export(tower, OUT / "det_b" / f"tower30.{kind}", meshes=b)
         assert pa.read_bytes() == pb.read_bytes(), kind
     assert (OUT / "det_a" / "tower30.mtl").read_bytes() == (OUT / "det_b" / "tower30.mtl").read_bytes()
+
+
+# ----------------------------------------------------------------------------- decimation
+
+
+def box1_sdf(p):
+    """Exact SDF of the box1 fixture (2 x 1 x 1 m standing on y = 0), points (N, 3)."""
+    q = np.abs(np.asarray(p, dtype=np.float64) - [0.0, 0.5, 0.0]) - [1.0, 0.5, 0.5]
+    return np.linalg.norm(np.maximum(q, 0.0), axis=1) + np.minimum(q.max(axis=1), 0.0)
+
+
+def unit(v):
+    return v / np.linalg.norm(v, axis=-1, keepdims=True)
+
+
+def test_decimated_tower_parts_stay_closed_named_and_sized(tower_full, tower_meshes):
+    assert [m.name for m in tower_meshes] == [m.name for m in tower_full]
+    assert [m.members for m in tower_meshes] == [m.members for m in tower_full]
+    before = sum(m.triangle_count for m in tower_full)
+    after = sum(m.triangle_count for m in tower_meshes)
+    assert after * 10 < before
+    assert edge_report(tower_meshes) == [] and format_edges(tower_meshes).startswith("MANIFOLD  yes")
+    for full, m in zip(tower_full, tower_meshes):
+        assert m.triangles_before == full.triangle_count and m.triangle_count < full.triangle_count, m.name
+        tris = m.triangles.astype(np.int64)
+        assert_closed(tris)
+        assert euler(tris) == euler(full.triangles.astype(np.int64)), m.name  # same topology (holes, handles)
+        # The bounding box shrinks by at most BBOX_TOL and never grows.
+        assert (m.positions.min(axis=0) >= full.positions.min(axis=0) - 1e-6).all(), m.name
+        assert (m.positions.max(axis=0) <= full.positions.max(axis=0) + 1e-6).all(), m.name
+        assert np.abs(m.positions.min(axis=0) - full.positions.min(axis=0)).max() <= BBOX_TOL + 1e-6, m.name
+        assert np.abs(m.positions.max(axis=0) - full.positions.max(axis=0)).max() <= BBOX_TOL + 1e-6, m.name
+        assert m.volume() == pytest.approx(full.volume(), rel=0.1), m.name
+        assert np.abs(np.linalg.norm(m.normals, axis=1) - 1.0).max() < 1e-5
+        fn, _ = face_normals(m.positions, tris)
+        assert (np.einsum("ij,ij->i", fn, m.normals[tris].sum(axis=1)) > 0).all(), m.name  # winding = normals
+        assert m.tolerance == pytest.approx(QUALITY["medium"] * m.cell)
+        # Measured against the SDF: within the tolerance, or no worse than the surface-nets mesh itself
+        # (collapses inside flat faces are not probed, hence the small margin).
+        assert m.max_error <= max(m.tolerance, m.source_error) + 0.05 * m.tolerance, m.name
+        assert set(np.unique(m.tri_part)) <= set(np.unique(full.tri_part))
+
+
+def test_decimation_keeps_material_seams(tower, tower_full, tower_meshes):
+    parts = tower.scene().parts
+
+    def area_by_material(m):
+        p = m.positions.astype(np.float64)[m.triangles]
+        area = np.linalg.norm(np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]), axis=1) / 2
+        out = {}
+        for a, pi in zip(area, m.tri_part):
+            out[parts[pi].material] = out.get(parts[pi].material, 0.0) + a
+        return out
+
+    full = area_by_material(next(m for m in tower_full if m.name == "roof"))
+    dec = area_by_material(next(m for m in tower_meshes if m.name == "roof"))
+    assert set(dec) == set(full) == {"roof", "gold"}
+    assert dec["gold"] == pytest.approx(full["gold"], rel=0.25)  # the finial seam stays where it was
+    assert dec["roof"] == pytest.approx(full["roof"], rel=0.05)
+
+
+def test_decimated_box_keeps_corners_and_crisp_edges():
+    box = load_asset(FIX / "box1.yaml")
+    (full,) = build_meshes(box, max_cells=64, quality="full")
+    (m,) = decimate_meshes(box, [full])
+    assert m.triangle_count < 400 and full.triangle_count > 10_000
+    assert_closed(m.triangles)
+    assert m.volume() == pytest.approx(2.0, rel=1e-3)
+    assert np.abs(m.positions.min(axis=0) - [-1.0, 0.0, -0.5]).max() < 1e-4
+    assert np.abs(m.positions.max(axis=0) - [1.0, 1.0, 0.5]).max() < 1e-4
+    pos = m.positions.astype(np.float64)
+    assert np.abs(box1_sdf(pos)).max() < 0.05 * m.cell  # every vertex on the box, corners included
+    # Shading: where the interpolated normal near a triangle corner is off the true normal, the
+    # triangle is a thin strip along a sharp edge, not a whole face smeared.
+    tri = pos[m.triangles]
+    nrm = m.normals.astype(np.float64)[m.triangles]
+    near = np.array([[0.75, 0.125, 0.125], [0.125, 0.75, 0.125], [0.125, 0.125, 0.75]])
+    pts = np.einsum("kc,tcx->tkx", near, tri).reshape(-1, 3)
+    h = 0.25 * m.cell
+    grad = np.stack([(box1_sdf(pts + h * e) - box1_sdf(pts - h * e)) / (2 * h) for e in np.eye(3)], axis=1)
+    off = (unit(np.einsum("kc,tcx->tkx", near, nrm)) * unit(grad).reshape(-1, 3, 3)).sum(axis=2)
+    smeared = (off < math.cos(math.radians(SHADE_ANGLE))).any(axis=1)
+    edge = np.stack([np.linalg.norm(tri[:, k] - tri[:, (k + 1) % 3], axis=1) for k in range(3)], axis=1)
+    width = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1) / edge.max(axis=1)
+    assert smeared.any() and (width[smeared] <= SHADE_WIDTH * m.cell + 1e-6).all()
+    assert width[~smeared].max() > 10 * m.cell  # the faces themselves are a few big triangles
+
+
+def test_decimated_sphere_stays_within_tolerance():
+    asset = asset_from("sphere", SPHERE)
+    (full,) = build_meshes(asset, max_cells=64, quality="full")
+    (m,) = decimate_meshes(asset, [full])
+    tol = QUALITY["medium"] * full.cell
+    assert m.tolerance == pytest.approx(tol)
+    assert 100 < m.triangle_count and m.triangle_count * 10 < full.triangle_count
+    tris = m.triangles.astype(np.int64)
+    assert_closed(tris)
+    assert euler(tris) == 2
+    pos, center = m.positions.astype(np.float64), np.array([0.0, 1.0, 0.0])
+    assert np.abs(np.linalg.norm(pos - center, axis=1) - 1.0).max() <= tol + 1e-6
+    centroid_r = np.linalg.norm(pos[tris].mean(axis=1) - center, axis=1)
+    assert np.abs(centroid_r - 1.0).max() <= tol + 1e-6  # the flat triangles stay within tolerance too
+    assert m.max_error == pytest.approx(max(np.abs(np.linalg.norm(pos - center, axis=1) - 1).max(),
+                                            np.abs(centroid_r - 1).max()), abs=1e-5)
+    assert (np.einsum("ij,ij->i", m.normals, pos - center) > 0).all()  # normals still point outward
+    fn, cen = face_normals(pos, tris)
+    assert (np.einsum("ij,ij->i", fn, cen - center) > 0).all()
+    assert m.volume() == pytest.approx(4 / 3 * math.pi, rel=0.02)
+
+
+def test_decimation_keeps_holes_and_recesses():
+    holed = asset_from("holed", "  - {name: block, shape: box, size: [2, 1, 1], material: stone, align: bottom}\n"
+                                "  - {name: hole, shape: cylinder, radius: 0.25, height: 2, rotate: [90, 0, 0], op: cut,"
+                                " from: [block], at: [0, 0.5, 0]}\n")
+    niche = asset_from("niche", "  - {name: wall, shape: box, size: [2, 2, 1], material: stone, align: bottom}\n"
+                                "  - {name: niche, shape: box, size: [0.6, 1.0, 0.4], op: cut, on: wall.front, align: center}\n")
+    for asset, genus_euler, volume_ in ((holed, 0, 2.0 - math.pi * 0.25**2), (niche, 2, 4.0 - 0.6 * 1.0 * 0.2)):
+        (m,) = build_meshes(asset, max_cells=64)  # the default: quality medium
+        assert m.source_triangles is not None and m.triangle_count * 10 < m.source_triangles
+        assert_closed(m.triangles)
+        assert euler(m.triangles.astype(np.int64)) == genus_euler
+        assert m.volume() == pytest.approx(volume_, rel=0.02)
+
+
+def test_quality_presets_and_triangle_budget():
+    asset = asset_from("sphere", SPHERE)
+    (full,) = build_meshes(asset, max_cells=48, quality="full")
+    assert full.source_triangles is None and full.triangles_before == full.triangle_count
+    counts = {q: decimate_meshes(asset, [full], q)[0].triangle_count for q in ("high", "medium", "low")}
+    assert full.triangle_count > counts["high"] > counts["medium"] > counts["low"]
+    assert decimate_meshes(asset, [full], "full")[0] is full  # nothing to do
+    (small,) = decimate_meshes(asset, [full], max_tris=120)
+    assert small.triangle_count <= 120 < counts["medium"]
+    assert_closed(small.triangles)
+    assert euler(small.triangles.astype(np.int64)) == 2
+    assert small.tolerance > QUALITY["medium"] * full.cell  # the budget relaxed the tolerance
+    assert small.volume() == pytest.approx(4 / 3 * math.pi, rel=0.1)
+    (same,) = build_meshes(asset, max_cells=48, quality="medium", max_tris=10**6)
+    assert same.triangle_count <= counts["medium"]
+    path = export_glb(asset, OUT / "sphere_budget.glb", max_cells=48, max_tris=120)
+    assert validate_glb(path) == []
+    _, doc, _, blob = parse_glb(path)
+    ((pos, tris),) = glb_triangles(doc, blob)
+    assert len(tris) <= 120
+    assert_closed(tris)
+
+
+def test_quality_errors():
+    box = load_asset(FIX / "box1.yaml")
+    with pytest.raises(SightlineError, match="quality must be one of") as exc:
+        build_meshes(box, max_cells=16, quality="ultra")
+    assert exc.value.hint
+    for bad in (0, 3, "100", True, 12.5):
+        with pytest.raises(SightlineError, match="max_tris must be an integer"):
+            build_meshes(box, max_cells=16, max_tris=bad)
+    with pytest.raises(SightlineError, match="bake_colors needs the full mesh"):
+        build_meshes(box, max_cells=16, bake_colors=True, quality="low")
+    with pytest.raises(SightlineError, match="bake_colors needs the full mesh"):
+        export_glb(box, OUT / "baked_budget.glb", max_cells=16, bake_colors=True, max_tris=100)
+    with pytest.raises(SightlineError, match="max_tris decimates"):
+        build_meshes(box, max_cells=16, quality="full", max_tris=100)
+    (baked,) = build_meshes(box, max_cells=16, bake_colors=True)  # baking exports the full mesh
+    assert baked.source_triangles is None and baked.colors is not None
+
+
+def test_summary_reports_triangles_before_and_after(tower_full, tower_meshes):
+    lines = mesh_summary(tower_meshes).splitlines()
+    assert lines[0].split() == ["PART", "VERTS", "TRIS", "BEFORE", "CELL", "DEV_MM", "VOLUME"]
+    base = lines[1].split()
+    m = tower_meshes[0]
+    assert base[0] == m.name and int(base[2]) == m.triangle_count and int(base[3]) == tower_full[0].triangle_count
+    assert float(base[5]) == pytest.approx(m.max_error * 1000, abs=0.01)
+    total = lines[-1].split()
+    after, before = sum(x.triangle_count for x in tower_meshes), sum(x.triangle_count for x in tower_full)
+    assert total[0] == "total" and int(total[2]) == after and int(total[3]) == before
+    line = format_decimation(tower_meshes)
+    assert line.startswith(f"DECIMATE  {before} -> {after} triangles ({before / after:.1f}x fewer)")
+    assert "tolerance" in line and "surface nets alone" in line
+    assert format_decimation(tower_full).startswith("DECIMATE  off")
+    full_rows = mesh_summary(tower_full).splitlines()
+    assert full_rows[1].split()[2] == full_rows[1].split()[3] and full_rows[1].split()[5] == "-"
+
+
+def test_nonmanifold_vertices_found_and_kept():
+    # Two tetrahedra sharing edge 0-1 (4 triangles on it) and a loose triangle (open edges).
+    tris = np.array([[0, 1, 2], [0, 3, 1], [0, 2, 3], [1, 3, 2], [0, 4, 1], [0, 1, 5], [0, 5, 4], [1, 4, 5],
+                     [6, 7, 8]])
+    assert np.flatnonzero(nonmanifold_vertices(tris, 9)).tolist() == [0, 1, 6, 7, 8]
+
+    # Two closed balls welded at one vertex: two fans around it, every edge still joins 2 triangles.
+    ball = lambda c: (lambda p3: np.sqrt((p3[0] - c) ** 2 + p3[1] ** 2 + p3[2] ** 2) - 0.6)  # noqa: E731
+    verts, tris1 = surface_nets(ball(0.0), [-0.6] * 3, [0.6] * 3, 0.08)
+    assert not nonmanifold_vertices(tris1, len(verts)).any()
+    tip, tail = int(np.argmax(verts[:, 0])), int(np.argmin(verts[:, 0]))
+    shift = verts[tip, 0] - verts[tail, 0]
+    tris2 = tris1 + len(verts)
+    tris2[tris2 == tail + len(verts)] = tip
+    pos = np.concatenate([verts, verts + [shift, 0, 0]])
+    tris = np.concatenate([tris1, tris2])
+    used = np.unique(tris)
+    pos, tris = pos[used], np.searchsorted(used, tris)
+    weld = int(np.flatnonzero(used == tip)[0])
+    fn = lambda p3: np.minimum(ball(0.0)(p3), ball(shift)(p3)).astype(np.float32)  # noqa: E731
+    assert np.flatnonzero(nonmanifold_vertices(tris, len(pos))).tolist() == [weld]
+    normals = vertex_normals(fn, pos, tris, 0.02)
+    (out,) = decimate([DecimationInput(pos, tris, normals, np.zeros(len(tris), dtype=np.int64), fn, 0.08)], 0.25)
+    assert len(out.triangles) * 4 < len(tris)
+    t = out.triangles
+    und, dmax = edge_use(t)
+    assert (und == 2).all() and dmax == 1  # still closed, nothing new became non-manifold
+    assert np.flatnonzero(nonmanifold_vertices(t, len(out.positions))).tolist() == [
+        int(np.flatnonzero(out.vertex_ids == weld)[0])]
+    assert np.allclose(out.positions[out.vertex_ids == weld], pos[weld])  # the weld never moved
 
 
 # ----------------------------------------------------------------------------- errors and paths
@@ -572,17 +797,23 @@ def test_directory_out_path_uses_asset_name():
 
 def test_tower30_counts_and_timing(tower, capsys):
     t0 = time.perf_counter()
-    meshes = build_meshes(tower)
+    full = build_meshes(tower, quality="full")
     t1 = time.perf_counter()
-    glb = export_glb(tower, OUT / "tower30_timed.glb", meshes=meshes)
+    meshes = decimate_meshes(tower, full)
     t2 = time.perf_counter()
-    obj = export_obj(tower, OUT / "tower30_timed.obj", meshes=meshes)
+    glb = export_glb(tower, OUT / "tower30_timed.glb", meshes=meshes)
     t3 = time.perf_counter()
+    obj = export_obj(tower, OUT / "tower30_timed.obj", meshes=meshes)
+    t4 = time.perf_counter()
+    before = sum(m.triangle_count for m in full)
     tris = sum(m.triangle_count for m in meshes)
     with capsys.disabled():
-        print(f"\ntower30 max_cells=128: {len(meshes)} meshes, {sum(m.vertex_count for m in meshes)} vertices, "
-              f"{tris} triangles; mesh {t1 - t0:.2f} s, glb {t2 - t1:.2f} s ({glb.stat().st_size / 1e6:.2f} MB), "
-              f"obj {t3 - t2:.2f} s ({obj.stat().st_size / 1e6:.2f} MB)")
-    assert 50_000 < tris < 250_000
-    assert t1 - t0 < 20.0
+        print(f"\ntower30 max_cells=128: {len(meshes)} meshes, {before} -> {tris} triangles "
+              f"({sum(m.vertex_count for m in meshes)} vertices); mesh {t1 - t0:.2f} s, decimate {t2 - t1:.2f} s, "
+              f"glb {t3 - t2:.2f} s ({glb.stat().st_size / 1e6:.3f} MB), obj {t4 - t3:.2f} s "
+              f"({obj.stat().st_size / 1e6:.3f} MB)")
+    assert 50_000 < before < 250_000
+    assert sum(m.triangles_before for m in meshes) == before
+    assert 1_000 < tris < before / 10
+    assert t1 - t0 < 20.0 and t2 - t1 < 40.0
     assert "total" in mesh_summary(meshes).splitlines()[-1]
