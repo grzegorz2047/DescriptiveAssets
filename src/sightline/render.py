@@ -542,8 +542,12 @@ def _ambient_occlusion(scene: Scene, pts: np.ndarray, nrm: np.ndarray, step: flo
 
 
 def render_view(scene: Scene, style, cam: Camera, ground: Ground | None = None, outline: bool = True,
-                shadows: bool | None = None, ao_step: float | None = None) -> ViewRender:
-    """Shade one camera view of a scene (asset parts, optional helpers) with an optional ground slab."""
+                shadows: bool | None = None, ao_step: float | None = None, light: str = "world") -> ViewRender:
+    """Shade one camera view of a scene (asset parts, optional helpers) with an optional ground slab.
+
+    light="view" turns the style's light with the camera (see `Camera.follow_light`), so a back or
+    side view is lit like the front one, as on a concept turnaround sheet.
+    """
     vb = march(scene, cam)
     h, w = cam.height, cam.width
     n = h * w
@@ -569,12 +573,16 @@ def render_view(scene: Scene, style, cam: Camera, ground: Ground | None = None, 
     point[ai] = vb.point.reshape(n, 3)[ai]
     normal[ai] = vb.normal.reshape(n, 3)[ai]
     local = vb.local.reshape(n, 3)
-    for pi in np.unique(a_part[ai]):
-        sel = ai[a_part[ai] == pi]
+    a_surf = a_part.copy()  # who colours each hit: the solid, or a paint (op: paint) over it
+    if scene.paints and ai.size:
+        a_surf[ai] = scene.paint_ids(point[ai], a_part[ai])
+    for pi in np.unique(a_surf[ai]):
+        sel = ai[a_surf[ai] == pi]
         part = scene.parts[pi]
         mat = material_for(style, part.material)
         n_local = (normal[sel].astype(np.float64) @ part.matrix).astype(F32)
-        base[sel] = surface_color(mat, local[sel], n_local, mpp)
+        loc = local[sel] if part.is_solid else part.to_local(point[sel])
+        base[sel] = surface_color(mat, loc, n_local, mpp)
         shine[sel] = float(mat.shine)
     gi = np.flatnonzero(ground_vis)
     if gi.size:
@@ -584,7 +592,8 @@ def render_view(scene: Scene, style, cam: Camera, ground: Ground | None = None, 
         base[gi] = gcol[gi]
 
     # Light: key (with shadow rays), sky ambient x AO, fill from the other side, Blinn-Phong shine.
-    to_light = -np.asarray(style.light_dir, dtype=np.float64)
+    light_dir = cam.follow_light(style.light_dir) if light == "view" else np.asarray(style.light_dir, dtype=np.float64)
+    to_light = -light_dir
     to_light /= max(np.linalg.norm(to_light), 1e-9)
     fill_dir = np.array([-to_light[0], 0.35, -to_light[2]])
     fill_dir /= max(np.linalg.norm(fill_dir), 1e-9)
@@ -636,7 +645,8 @@ def render_view(scene: Scene, style, cam: Camera, ground: Ground | None = None, 
     if outline and width > 0:
         depth = np.where(asset_vis, a_t, np.inf).reshape(h, w)
         jump = DEPTH_JUMP_PX * mpp
-        strong, soft = _edges(part_vis, depth, jump, depth_slopes(normal, cam, asset_vis.reshape(h, w)),
+        surf_vis = np.where(asset_vis, a_surf, -1).reshape(h, w).astype(np.int32)  # paint borders draw like part borders
+        strong, soft = _edges(surf_vis, depth, jump, depth_slopes(normal, cam, asset_vis.reshape(h, w)),
                               (seam_surfaces(scene), normal.reshape(h, w, 3)))
         strong = _thicken(strong, depth, part_vis >= 0, width - 1, jump)
         soft = _thicken(soft, depth, part_vis >= 0, width - 2, jump) & ~strong
@@ -684,22 +694,37 @@ def _mpp(mpp) -> float | None:
 
 
 def render_raw(asset, views=None, res=None, *, mpp: float | None = None, scale_figure: bool = True,
-               outline: bool = True, ground: bool | None = None, shadows: bool | None = None) -> dict[str, ViewRender]:
+               outline: bool = True, ground: bool | None = None, shadows: bool | None = None,
+               light: str = "world") -> dict[str, ViewRender]:
     """Render views sharing one meters-per-pixel scale; no caption, no upscale.
 
     `res` = pixels on the long side of the largest view (default: the style's), or a fixed `mpp`.
     `ground` / `shadows` default to the style. Views from below the ground (orbit elevation < 0) leave
-    the slab out, which would hide the asset's underside. Other modules (inspect, reference) use this
-    for raw pixels: `ViewRender.part` and `.rgb` give the shaded color of every visible part.
+    the slab out, which would hide the asset's underside. `light` is "world" (the style's light, the
+    same for every view) or "view" (turned with each camera, as on a concept turnaround sheet). Other
+    modules (inspect, reference) use this for raw pixels: `ViewRender.part` and `.rgb` give the shaded
+    color of every visible part.
     """
     style = asset.style
     views = _views(views, style)
     res = _res(res, style)
+    light = _light(light)
     lay = layout(asset, scale_figure, ground)
     cams = make_cameras(views, lay.frame_min, lay.frame_max, res=res, mpp=_mpp(mpp))
     ao_step = 0.012 * lay.size
-    return {v: render_view(lay.scene, style, cams[v], None if _from_below(v) else lay.ground, outline, shadows, ao_step)
+    return {v: render_view(lay.scene, style, cams[v], None if _from_below(v) else lay.ground, outline, shadows, ao_step,
+                           light)
             for v in views}
+
+
+LIGHTS = ("world", "view")
+
+
+def _light(light) -> str:
+    if light not in LIGHTS:
+        raise SightlineError(f"light must be 'world' or 'view', got {light!r}",
+                             hint="'world' keeps the style's light for every view; 'view' turns it with the camera")
+    return light
 
 
 def _from_below(view: str) -> bool:
@@ -723,13 +748,14 @@ def _rgb255(color) -> tuple[int, int, int]:
 
 
 def render_views(asset, views=None, res=None, scale_figure=True, outline=True, *, caption: bool = True,
-                 upscale: int | None = None, mpp: float | None = None) -> dict[str, Image.Image]:
+                 upscale: int | None = None, mpp: float | None = None, light: str = "world") -> dict[str, Image.Image]:
     """Shaded views {view: RGB image} at one shared scale, with ground, shadows, outlines, the 1.8 m
     scale figure and a caption strip (`<asset> · <view> · 1 px = <m> m · grid <g> m`).
 
     Images under 384 px on the long side are upscaled x2 (nearest); the caption's px is the PNG pixel.
+    `light` as in `render_raw`.
     """
-    raws = render_raw(asset, views, res, mpp=mpp, scale_figure=scale_figure, outline=outline)
+    raws = render_raw(asset, views, res, mpp=mpp, scale_figure=scale_figure, outline=outline, light=light)
     return {v: present_view(asset, r, upscale, caption) for v, r in raws.items()}
 
 
@@ -962,13 +988,13 @@ def label_parts(img: Image.Image, ids: np.ndarray, parts: list[int], names: list
 
 
 def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = True,
-                  ground: bool | None = None) -> dict[str, pathlib.Path]:
+                  ground: bool | None = None, light: str = "world") -> dict[str, pathlib.Path]:
     """Write `<view>.png` for every view (default: the style's; ':' in orbit names becomes '_'),
     `parts.png` (part map of the iso view, or front / the first view when iso is not rendered) and
     `sheet.png` (all of them under a header) into out_dir, creating it.
 
     Returns {view: path, ..., "parts": path, "sheet": path}. scale_figure=False is `--no-human`,
-    ground=False is `--no-ground` (default: the style's ground.show).
+    ground=False is `--no-ground` (default: the style's ground.show), light="view" is `--light view`.
     """
     from .sheet import make_sheet
 
@@ -976,7 +1002,7 @@ def write_renders(asset, out_dir, views=None, res=None, *, scale_figure: bool = 
     out.mkdir(parents=True, exist_ok=True)
     style = asset.style
     views = _views(views, style)
-    raws = render_raw(asset, views, res, scale_figure=scale_figure, ground=ground)
+    raws = render_raw(asset, views, res, scale_figure=scale_figure, ground=ground, light=light)
     images = {v: present_view(asset, r) for v, r in raws.items()}
     map_view = "iso" if "iso" in views else ("front" if "front" in views else views[0])
     part_map = render_part_map(asset, map_view, res)

@@ -233,13 +233,22 @@ bottom center of the front face and `@[0, 0.45, 0]` is 45% of the half-height ab
   Inside a group each member's cuts are applied before the smooth union.
 - **Cut** (`op: cut`) subtracts the part from every part in `from` (default the `on` target). Cuts
   are never drawn and have no material. A cut may target only earlier solids.
+- **Paint** (`op: paint`, with a `material`) adds no geometry: where the surface of a part in `from`
+  lies inside the paint's shape, it takes the paint's material (a material zone, a decal, a panel
+  line). `from` defaults to the `on` target, else every earlier solid; a later paint wins where two
+  overlap. Paints change no size, contact or outline; they show in renders (their borders draw like
+  part borders), in `match` and `structure` (as the part that colours those pixels), in the
+  report's colour shares and in the export (the triangles inside a paint get its material, one
+  glTF primitive per material). `visible` checks work on them (the share of their painted surface a
+  view shows). Up to 256 paints, apart from the 256 solids and cuts.
 
 ### 3.6 Validation
 
 Errors (with file, YAML path, line and a hint): unknown keys, unknown shape, missing/zero/negative
 sizes, unknown material (did-you-mean over the style's materials), forward or unknown references,
 unknown anchors, duplicate names after expansion, `round` too large, capsule height < 2r,
-`count` < 1, more than 256 parts after expansion, a cut with a material, a solid without one,
+`count` < 1, more than 256 parts (or 256 paints) after expansion, a cut with a material, a solid or
+paint without one, `blend` on a paint, `from` on a solid,
 `asset:` not equal to the file name.
 
 ## 4. Asset checks
@@ -384,7 +393,8 @@ SPLITS     model parts that the picture divides into several elements (split the
 and writes `out/<asset>/structure_<i>.png` (picture regions that disagree | the model with its part
 boundaries | class agreement and shared / picture-only / model-only edges).
 
-`sightline structure <asset> --trace R12,R15 [--depth 0.03] [--conform]` (or `--trace disagree`) prints
+`sightline structure <asset> --trace R12,R15 [--depth 0.03] [--conform] [--paint]` (or `--trace disagree`,
+`--trace fix`) prints
 `extrude` parts traced from those regions: the region's outline (smoothed by 2 px, simplified to at
 most 14 corners; lights under 60 px keep their pixels) in meters, placed on the model's surface at
 that spot (bright regions stand `depth` out, sunk 1 cm; dark ones only 4 mm, on the deeper surface, so
@@ -397,6 +407,14 @@ left/right pair as one part with `mirror: x`.
 - `--conform` bends the plate along the model from top to bottom: it gets a `side` outline that
   follows the surface (a weighted quadratic fit of its height row by row), so a plate on a rounded
   back or chest hugs it instead of standing off as a flat board.
+- `--trace fix` traces only the patches where the model's class differs from the picture's (inside
+  both outlines; slivers of 1 px along a class border and patches under 30 grid px are left out),
+  largest first as F1, F2 ...; they are never mirrored, so each view fixes its own side.
+- `--paint` writes `op: paint` parts instead of plates: the same outline, a slab that spans the
+  surface the view shows there (12 mm in front of and behind it; with `--conform` row by row) and
+  `from:` the solids under the region. The outline and the size stay; only the colours change.
+  `--trace fix --paint --conform` on each reference in turn brings every view's classes to the
+  picture without plates poking out of the other views' outlines.
 - Region ids come from the picture resampled on the grid aligned with the model, so they can move
   when the model changes. Run `sightline structure` again before tracing, and in scripts pick regions
   by their class and place (`x`/`y` ranges in the report), not by a remembered id.
@@ -508,7 +526,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | command | writes / prints |
 |---|---|
 | `sightline new <name> [--style S] [--brief TEXT] [--force]` | `assets/<name>.yaml` template (a ground part, commented examples of on/align/repeat/mirror/cut, the brief's sentences as TODO checks) |
-| `sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human] [--no-ground]` | `out/<asset>/<view>.png` (orbit views as `orbit_30_15.png`), `parts.png`, `sheet.png`; views from below (`orbit:30:-20`) draw no ground slab |
+| `sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human] [--no-ground] [--light world\|view]` | `out/<asset>/<view>.png` (orbit views as `orbit_30_15.png`), `parts.png`, `sheet.png`; views from below (`orbit:30:-20`) draw no ground slab; `--light view` turns the style's light with each camera (every view lit as the front one, as on a concept turnaround sheet; `match` and `structure` panels always do this) |
 | `sightline inspect <asset> [--json] [--res N] [--compare a,b]` | the measured report |
 | `sightline check [<asset>...] [--json]` | PASS/FAIL per check; no names = every asset |
 | `sightline diff <asset> [--against REV\|path]` | report changes since git HEAD (or a revision or an older copy) |
@@ -516,7 +534,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--quality full\|high\|medium\|low] [--max-tris N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table with triangles before and after decimation |
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
-| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--conform] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
+| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS\|disagree\|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
 | `sightline styles [name]`, `sightline shapes` | materials and colors; shape, anchor and placement reference |

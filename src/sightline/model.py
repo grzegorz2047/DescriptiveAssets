@@ -371,8 +371,8 @@ class Part:
     matrix: np.ndarray  # (3, 3) orthogonal local -> world (det may be -1)
     position: np.ndarray  # (3,) world position of the local origin
     material: str | None  # None for cuts
-    op: str = "union"  # "union" | "cut"
-    cut_from: list[str] = field(default_factory=list)  # solid parts this cut applies to
+    op: str = "union"  # "union" | "cut" | "paint"
+    cut_from: list[str] = field(default_factory=list)  # solid parts this cut (or paint) applies to
     blend: float = 0.0
     blend_with: str | None = None
     attached_to: str | None = None  # target part name from `on`
@@ -389,7 +389,16 @@ class Part:
 
     @property
     def is_solid(self) -> bool:
-        return self.op != "cut"
+        return self.op == "union"
+
+    @property
+    def is_cut(self) -> bool:
+        return self.op == "cut"
+
+    @property
+    def is_paint(self) -> bool:
+        """A paint adds no geometry: the surfaces of its target parts inside its shape take its material."""
+        return self.op == "paint"
 
     def to_local(self, pts) -> np.ndarray:
         """World points (N, 3) -> local frame (N, 3) float32."""
@@ -556,12 +565,18 @@ class Scene:
         self._index = index
         # Cutters per solid (for every solid, active or not).
         self.cutters: dict[int, list[int]] = {i: [] for i in all_solids}
+        # Paints in file order (a later paint wins where two overlap), each with its target solids.
+        self.paints: list[tuple[int, np.ndarray]] = []
         for ci, p in enumerate(self.parts):
-            if not p.is_solid:
+            if p.is_cut:
                 for name in p.cut_from:
                     j = index.get(name)
                     if j is not None and j in self.cutters and j < ci:
                         self.cutters[j].append(ci)
+            elif p.is_paint:
+                targets = [index[name] for name in p.cut_from if index.get(name) in self.cutters]
+                if targets:
+                    self.paints.append((ci, np.array(sorted(set(targets)), dtype=np.int32)))
         self._aabb = {i: p.world_aabb() for i, p in enumerate(self.parts)}
         self.groups = self._build_groups()
 
@@ -615,6 +630,33 @@ class Scene:
         extra = list(extra_parts)
         new_solids = [n + k for k, p in enumerate(extra) if p.is_solid]
         return Scene(self.parts + extra, self._solids + new_solids)
+
+    def paint_ids(self, points, part_ids) -> np.ndarray:
+        """Who colours each surface point: the last paint (op: paint) whose shape holds the point and
+        that targets the solid hit there, else that solid. `points` (N, 3) world, `part_ids` (N,) the
+        solid hit at each point (-1: nothing). Returns (N,) int32 part indices (paints or solids)."""
+        ids = np.asarray(part_ids, dtype=np.int32).reshape(-1)
+        out = ids.copy()
+        if not self.paints or ids.size == 0:
+            return out
+        pts = np.asarray(points, dtype=F32).reshape(-1, 3)
+        for ci, targets in self.paints:
+            sel = np.flatnonzero(np.isin(ids, targets))
+            if not sel.size:
+                continue
+            lo, hi = self._aabb[ci]
+            near = np.all((pts[sel] >= (lo - 1e-6).astype(F32)) & (pts[sel] <= (hi + 1e-6).astype(F32)), axis=1)
+            sel = sel[near]
+            if sel.size:
+                out[sel[self.parts[ci].sdf(pts[sel]) <= 0.0]] = ci
+        return out
+
+    def surface_ids(self, buffers) -> np.ndarray:
+        """`paint_ids` for a marched view (ViewBuffers): (H, W) int32, -1 where nothing was hit."""
+        part = np.where(buffers.hit, buffers.part, -1)
+        if not self.paints:
+            return part.astype(np.int32)
+        return self.paint_ids(buffers.point.reshape(-1, 3), part.reshape(-1)).reshape(part.shape)
 
     # -- evaluation on (3, N) float32 points
 

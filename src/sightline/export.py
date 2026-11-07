@@ -255,7 +255,7 @@ class PartMesh:
     normals: np.ndarray  # (V, 3) float32, unit, outward
     triangles: np.ndarray  # (T, 3) uint32, counter-clockwise seen from outside
     vertex_part: np.ndarray  # (V,) int32 scene part index nearest to each vertex
-    tri_part: np.ndarray  # (T,) int32 scene part index nearest to each triangle center (-> material)
+    tri_part: np.ndarray  # (T,) int32 scene part index nearest to each triangle center, or the paint over it (-> material)
     cell: float  # lattice cell edge used (m)
     colors: np.ndarray | None = field(default=None)  # (V, 3) float32 baked sRGB pattern colors
     # Decimation (None: the surface-nets mesh as is).
@@ -342,6 +342,9 @@ def mesh_group(scene: Scene, g: Group, cell: float) -> PartMesh | None:
     _, vertex_part = scene.group_dist3(g, np.ascontiguousarray(verts.T, dtype=F32), need_part=True)
     centers = verts[tris].mean(axis=1)
     _, tri_part = scene.group_dist3(g, np.ascontiguousarray(centers.T, dtype=F32), need_part=True)
+    if scene.paints:  # a paint (op: paint) gives the triangles and vertices inside it its material
+        vertex_part = scene.paint_ids(verts, vertex_part)
+        tri_part = scene.paint_ids(centers, tri_part)
     return PartMesh(
         name=scene.parts[g.members[0]].name,
         members=[scene.parts[m].name for m in g.members],

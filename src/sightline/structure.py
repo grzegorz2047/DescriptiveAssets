@@ -1165,15 +1165,52 @@ def _side_band(rows, s_front, s_back, v_of, mpp, eps_px: float = 1.0, max_points
     return np.vstack([f, b[::-1]])
 
 
-def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.03, prefix: str = "plate",
-                  max_relief: float | None = None, conform: bool = False) -> dict:
+FIX_MIN_PX = 30  # --trace fix: the smallest mismatch patch (comparison grid px) worth a part
+FIX_OPEN = 1  # px: a mismatch is opened by this much first; slivers along a class border are alignment
+PAINT_MARGIN = 0.012  # m a traced paint reaches in front of and behind the surface it colours
+PAINT_FROM_MIN = 0.05  # a solid under at least this share of a painted region goes in the paint's from: list
+
+
+def _fix_items(rep) -> list[dict]:
+    """--trace fix: the patches where the model's class differs from the picture's (inside both
+    silhouettes), largest first, as pseudo regions {id, class, mask, relief}."""
+    a = rep["_arrays"]
+    both = a["ref"] & a["model"]
+    cls, mcls = a["cls"], a["mcls"]
+    items = []
+    for c, cname in enumerate(CLASS_NAMES):
+        want = both & (cls == c) & (mcls != c)
+        if c < 2 and FIX_OPEN > 0:  # lights stay as small as they are
+            want &= _dilate(~_dilate(~want, FIX_OPEN), FIX_OPEN)
+        lc, sz = ref_mod.label_components(want)
+        for k in np.argsort(-sz, kind="stable"):
+            if sz[k] < (ACCENT_MIN_PX if c == 2 else FIX_MIN_PX):
+                continue
+            mask = lc == k
+            shown = np.bincount(mcls[mask & (mcls >= 0)], minlength=3)
+            items.append({"class": cname, "mask": mask, "px": int(sz[k]),
+                          "relief": f"the model shows {CLASS_NAMES[int(np.argmax(shown))]} here"})
+    items.sort(key=lambda it: -it["px"])
+    for k, it in enumerate(items):
+        it["id"] = f"F{k + 1}"
+    return items
+
+
+def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.03, prefix: str | None = None,
+                  max_relief: float | None = None, conform: bool = False, paint: bool = False) -> dict:
     """Extrude parts traced from a reference picture's regions (front, back, left or right view): the
     outline in meters, placed on the model's surface at that spot (turned to face the camera), material by
-    the region's class. `conform`: a side outline makes the plate follow the surface from top to bottom
+    the region's class. `conform`: a side outline makes the part follow the surface from top to bottom
     instead of standing flat. Side views give one part on the camera's side with `mirror: x`.
-    Returns {yaml, parts, report, skipped}."""
+
+    `ids`: region ids (R12), "disagree" (the regions whose class the model does not show) or "fix" (only
+    the patches where the model's class differs from the picture's, F1, F2 ...: no mirror, each view
+    fixes its own side). `paint`: `op: paint` parts instead of plates: no geometry, the surfaces under
+    the outline take the material (the slab spans the surface the view shows there, `from:` the solids
+    under it). Returns {yaml, parts, report, skipped}."""
     if not (isinstance(depth, (int, float)) and 0.002 <= depth <= 1.0):
         raise SightlineError(f"depth must be 0.002..1 m, got {depth!r}")
+    prefix = prefix or ("paint" if paint else "plate")
     rep = compare_structure(asset, index, res)
     tr = rep["_trace"]
     cam = tr["camera"]
@@ -1186,15 +1223,27 @@ def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.0
         if key == "disagree":
             want += [r["id"] for r in rep["regions"] if r.get("verdict") and not r["verdict"].startswith("ok")
                      and "outside" not in r["verdict"]]
+        elif key == "fix":
+            for it in _fix_items(rep):
+                regs[it["id"]] = it
+                want.append(it["id"])
         elif key in regs:
             want.append(key)
         else:
-            raise SightlineError(f"no region {key} in the picture", hint=f"regions are R1..R{len(regs)}; run sightline structure first")
+            raise SightlineError(f"no region {key} in the picture",
+                                 hint=f"regions are R1..R{len(rep['regions'])}; run sightline structure first, "
+                                      "or use 'disagree' or 'fix'")
     a = rep["_arrays"]
     labels, vb, pl, pt = a["labels"], tr["vb"], tr["pl"], tr["pt"]
-    h_of, v_of = tr["h_of"], tr["v_of"]
+    v_of = tr["v_of"]
+    h_sign = ref_mod._axes(cam)[0][1]  # h_of gives the asset axis (z in a side view); parts need camera right
+
+    def h_of(px):
+        return h_sign * tr["h_of"](px)
+
     mpp = float(cam.mpp)
     mats = _class_materials(asset, rep)
+    parts_all = asset.scene().parts
     s_map = vb.point.astype(np.float64) @ n  # height of the surface toward the viewer
     front_s = float(np.median(s_map[vb.hit])) if vb.hit.any() else 0.0
     view_tag = "" if rep["view"] == "front" else f"{rep['view']}_"
@@ -1204,15 +1253,18 @@ def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.0
         if rid in done:
             continue
         r = regs[rid]
-        pair = None if side_view else r.get("pair")
-        mirror = side_view or bool(pair and pair in want)
-        if pair and mirror and right[0] * r["center"][0] > 0:  # write the -x one with mirror: x
+        fix = "mask" in r
+        pair = None if (side_view or fix) else r.get("pair")
+        mirror = (side_view and not fix) or bool(pair and pair in want)
+        if pair and mirror and r["center"][0] > 0:  # write the -x one with mirror: x (centers are in asset x)
             r, rid = regs[pair], pair
         done.add(rid)
         if pair and mirror:
             done.add(r["pair"])
-        raw = labels == r["label"]
+        raw = r["mask"] if fix else labels == r["label"]
         mask = smooth_mask(raw) if raw.sum() >= TRACE_MIN_SMOOTH_PX else raw  # small lights keep their pixels
+        if not mask.any():
+            mask = raw
         poly_px = simplify(outline(mask))
         if len(poly_px) < 3:
             poly_px = simplify(outline(mask), eps=0.5)
@@ -1225,54 +1277,74 @@ def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.0
         pts = np.stack([h_of(poly_px[:, 0] + 0.5), v_of(poly_px[:, 1] + 0.5)], axis=1)
         if _self_intersects(pts):  # fall back to the convex hull
             pts = _hull(pts)
-        rows, cols = np.nonzero(mask)
+        rows, cols = np.nonzero(mask | raw) if paint else np.nonzero(mask)
         vr, vc = rows - pt, cols - pl
         ok = (vr >= 0) & (vr < vb.hit.shape[0]) & (vc >= 0) & (vc < vb.hit.shape[1])
         rows, vr, vc = rows[ok], vr[ok], vc[ok]
         hit = vb.hit[vr, vc]
         cls = "accent" if r["class"].startswith("accent") else r["class"]
-        q = 0.25 if cls == "dark" else 0.75  # a recessed region sits on the deeper surface it shows
-        if max_relief is not None and not conform and hit.sum() >= 4:
-            ss = s_map[vr[hit], vc[hit]]
-            relief = float(np.quantile(ss, 0.95) - np.quantile(ss, 0.05))
-            if relief > max_relief:  # a flat plate would not lie on this curved or sloped surface
-                skipped.append((rid, round(relief, 3)))
-                continue
-        sf = float(np.quantile(s_map[vr[hit], vc[hit]], q)) if hit.any() else front_s
-
-        def lift(s):  # plate front from the surface: dark ones only TRACE_FLUSH proud, so lights stay in front
-            return s + TRACE_FLUSH if cls == "dark" else s + depth - min(TRACE_SINK, depth / 2.0)
-
         side = None
-        if conform and hit.sum() >= 4:
-            urows = np.unique(rows)
-            per, wts = np.full(len(urows), np.nan), np.zeros(len(urows))
-            for k, row in enumerate(urows):
-                sel = (rows == row) & hit
-                if sel.any():
-                    per[k], wts[k] = np.quantile(s_map[vr[sel], vc[sel]], q), sel.sum()
-            good = ~np.isnan(per)
-            # a gently bent plate, not a staircase over the parts below it: a weighted fit of the
-            # surface's height down the region (quadratic, or a line / flat for short regions)
-            vv = v_of(urows + 0.5) - float(v_of(urows.mean() + 0.5))
-            deg = 2 if good.sum() >= 8 else (1 if good.sum() >= 3 else 0)
-            coef = np.polyfit(vv[good], per[good], deg, w=np.sqrt(wts[good]))
-            per = np.clip(np.polyval(coef, vv), per[good].min() - depth, per[good].max() + depth)
-            band = _side_band(urows.astype(np.float64), lift(per), lift(per) - depth, v_of, mpp)
-            if not _self_intersects(band):
-                side = band
+        from_names: list[str] = []
+        p_depth = depth
+        if paint:
+            if not hit.any():
+                skipped.append((rid, "not on the model"))
+                continue
+            under, cnt = np.unique(vb.part[vr[hit], vc[hit]], return_counts=True)
+            from_names = [parts_all[int(i)].name for i, c in zip(under, cnt)
+                          if i >= 0 and c >= PAINT_FROM_MIN * hit.sum() and parts_all[int(i)].is_solid]
+            ss = s_map[vr[hit], vc[hit]]
+            urows = np.unique(rows[hit])
+            if conform and len(urows) >= 2:
+                hi_s = np.array([s_map[vr[hit & (rows == row)], vc[hit & (rows == row)]].max() for row in urows])
+                lo_s = np.array([s_map[vr[hit & (rows == row)], vc[hit & (rows == row)]].min() for row in urows])
+                band = _side_band(urows.astype(np.float64), hi_s + PAINT_MARGIN, lo_s - PAINT_MARGIN, v_of, mpp)
+                if not _self_intersects(band):
+                    side = band
+            p_depth = float(ss.max() - ss.min()) + 2.0 * PAINT_MARGIN
+            cs = float(ss.max() + ss.min()) / 2.0
+        else:
+            q = 0.25 if cls == "dark" else 0.75  # a recessed region sits on the deeper surface it shows
+            if max_relief is not None and not conform and hit.sum() >= 4:
+                ss = s_map[vr[hit], vc[hit]]
+                relief = float(np.quantile(ss, 0.95) - np.quantile(ss, 0.05))
+                if relief > max_relief:  # a flat plate would not lie on this curved or sloped surface
+                    skipped.append((rid, round(relief, 3)))
+                    continue
+            sf = float(np.quantile(s_map[vr[hit], vc[hit]], q)) if hit.any() else front_s
+
+            def lift(s):  # plate front from the surface: dark ones only TRACE_FLUSH proud, so lights stay in front
+                return s + TRACE_FLUSH if cls == "dark" else s + depth - min(TRACE_SINK, depth / 2.0)
+
+            if conform and hit.sum() >= 4:
+                urows = np.unique(rows)
+                per, wts = np.full(len(urows), np.nan), np.zeros(len(urows))
+                for k, row in enumerate(urows):
+                    sel = (rows == row) & hit
+                    if sel.any():
+                        per[k], wts[k] = np.quantile(s_map[vr[sel], vc[sel]], q), sel.sum()
+                good = ~np.isnan(per)
+                # a gently bent plate, not a staircase over the parts below it: a weighted fit of the
+                # surface's height down the region (quadratic, or a line / flat for short regions)
+                vv = v_of(urows + 0.5) - float(v_of(urows.mean() + 0.5))
+                deg = 2 if good.sum() >= 8 else (1 if good.sum() >= 3 else 0)
+                coef = np.polyfit(vv[good], per[good], deg, w=np.sqrt(wts[good]))
+                per = np.clip(np.polyval(coef, vv), per[good].min() - depth, per[good].max() + depth)
+                band = _side_band(urows.astype(np.float64), lift(per), lift(per) - depth, v_of, mpp)
+                if not _self_intersects(band):
+                    side = band
+            cs = lift(sf) - depth / 2.0
         lo_v, hi_v = pts[:, 1].min(), pts[:, 1].max()
         if side is not None:
             lo_v, hi_v = max(lo_v, side[:, 1].min()), min(hi_v, side[:, 1].max())
             cs = (side[:, 0].min() + side[:, 0].max()) / 2.0
-        else:
-            cs = lift(sf) - depth / 2.0
+        if hi_v - lo_v < 1e-3:
+            skipped.append((rid, "no shared height"))
+            continue
         ch = (pts[:, 0].min() + pts[:, 0].max()) / 2.0
         cv = (lo_v + hi_v) / 2.0
         center = right * ch + up * cv + n * cs
-        if side_view and center[0] < 0:
-            suffix = "_l"
-        elif side_view or mirror:
+        if side_view or mirror:
             suffix = "_r" if center[0] > 0 else "_l"
         else:
             suffix = ""
@@ -1286,16 +1358,20 @@ def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.0
             side_rel = side - [cs, cv]
             lines.append("    side: [" + ", ".join(f"[{z:.3f}, {y:.3f}]" for z, y in side_rel) + "]")
         else:
-            lines.append(f"    depth: {depth:g}")
-        lines += [f"    round: {min(0.004, depth / 4):g}"]
+            lines.append(f"    depth: {p_depth:.3f}" if paint else f"    depth: {depth:g}")
+        if not paint:
+            lines += [f"    round: {min(0.004, depth / 4):g}"]
         if abs(yaw) > 1e-6:
             lines.append(f"    rotate: [0, {yaw:g}, 0]")
+        if paint:
+            lines += ["    op: paint", f"    from: [{', '.join(from_names)}]"]
         lines += [f"    material: {mats[cls]}", f"    at: [{center[0]:.3f}, {center[1]:.3f}, {center[2]:.3f}]"]
         if mirror:
             lines.append("    mirror: x")
         parts_out.append({"name": name, "region": rid, "points": rel.tolist(),
                           "side": None if side is None else (side - [cs, cv]).tolist(), "rotate": [0, yaw, 0],
-                          "at": center.tolist(), "material": mats[cls], "mirror": mirror})
+                          "at": center.tolist(), "material": mats[cls], "mirror": mirror,
+                          "op": "paint" if paint else "union", "from": from_names})
     yaml = "\n".join(lines) + ("\n" if lines else "")
     return {"yaml": yaml, "parts": parts_out, "report": rep, "skipped": skipped}
 

@@ -255,7 +255,7 @@ def cmd_render(args) -> int:
     asset = _load(args.asset, args)
     out = _out_dir(asset, args)
     paths = write_renders(asset, out, _split_list(args.views), args.res, scale_figure=not args.no_human,
-                          ground=False if args.no_ground else None)
+                          ground=False if args.no_ground else None, light=args.light)
     print(f"RENDER  {asset.name}: {', '.join(k for k in paths if k not in ('parts', 'sheet'))} + parts + sheet")
     _wrote(paths.values())
     return EXIT_OK
@@ -504,9 +504,12 @@ def cmd_structure(args) -> int:
     if args.trace:
         if pathlib.Path(target).suffix.lower() in IMAGE_SUFFIXES:
             raise SightlineError("--trace needs an asset", hint="trace places the plates on the model: sightline structure <asset> --trace R12")
-        ids = [s.strip().upper() if s.strip().lower() != "disagree" else "disagree" for s in args.trace.split(",") if s.strip()]
-        result = st.trace_regions(asset, ids, args.index, res=args.res, depth=args.depth, conform=args.conform)
-        print(f"# {len(result['parts'])} extrude part(s) traced from {asset.name}'s reference picture; paste them under parts:")
+        ids = [s.strip().lower() if s.strip().lower() in ("disagree", "fix") else s.strip().upper()
+               for s in args.trace.split(",") if s.strip()]
+        result = st.trace_regions(asset, ids, args.index, res=args.res, depth=args.depth, conform=args.conform,
+                                  paint=args.paint)
+        kind = "paint" if args.paint else "extrude"
+        print(f"# {len(result['parts'])} {kind} part(s) traced from {asset.name}'s reference picture; paste them under parts:")
         sys.stdout.write(result["yaml"])
         return EXIT_OK
     rep = st.compare_structure(asset, args.index, res=args.res)
@@ -735,6 +738,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--no-human", action="store_true", help="leave out the 1.8 m scale figure")
     sp.add_argument("--no-ground", action="store_true",
                     help="leave out the ground slab (views from below, orbit elevation < 0, never draw it)")
+    sp.add_argument("--light", choices=("world", "view"), default="world",
+                    help="world: the style's light for every view (default); view: the light turns with each camera, "
+                         "as on a concept turnaround sheet, so back and side views are lit like the front")
 
     sp = add("inspect", cmd_inspect, "print the measured report (sizes, contacts, visibility, silhouettes ...)")
     sp.add_argument("asset")
@@ -794,11 +800,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--height", type=float, help="image only: real height in meters (sizes in m instead of %%)")
     sp.add_argument("--mask", help="image only: black/white mask PNG (default: automatic)")
     sp.add_argument("--trace", help="asset only: print extrude parts traced from these picture regions "
-                                    "(comma-separated ids such as R12,R15, or 'disagree')")
+                                    "(comma-separated ids such as R12,R15; 'disagree': the regions the model "
+                                    "shows in another class; 'fix': only the patches where it does)")
     sp.add_argument("--depth", type=float, default=0.03, help="--trace: plate thickness in m (default 0.03)")
     sp.add_argument("--conform", action="store_true",
                     help="--trace: the plates follow the model's surface from top to bottom (a side outline) "
                          "instead of standing flat")
+    sp.add_argument("--paint", action="store_true",
+                    help="--trace: op: paint parts instead of plates (no geometry: the model's surface under "
+                         "the outline takes the material)")
     sp.add_argument("--out", help="output folder or PNG path")
     sp.add_argument("--json", action="store_true")
 

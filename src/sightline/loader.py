@@ -38,7 +38,8 @@ LENGTH_SHAPES = {"box": "size", "ellipsoid": "size", "wedge": "size", "cylinder"
                  "capsule": "height"}  # shapes `between` can stretch along their local Y axis
 REPEAT_KEYS = ("count", "step", "axis", "center")
 REFERENCE_KEYS = ("image", "view", "height", "mask", "lighting")
-MAX_PARTS = 256
+MAX_PARTS = 256  # solids and cuts
+MAX_PAINTS = 256
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 AXES = {"x": 0, "y": 1, "z": 2}
 _TARGET_RE = re.compile(r"^\s*([A-Za-z0-9_]+)\s*(?:\.\s*([A-Za-z0-9_]*)|@\s*(\[.*\]))\s*$")
@@ -141,8 +142,8 @@ class _Builder:
         if name in self.index:
             j = self.index[name]
             if solid and not self.parts[j].is_solid:
-                self.ctx.fail(f"'{name}' is a cut, not a solid part", head, path,
-                              "cuts and blends apply to solid parts; name a solid part")
+                self.ctx.fail(f"'{name}' is a {self.parts[j].op}, not a solid part", head, path,
+                              "cuts, paints and blends apply to solid parts; name a solid part")
             return j
         if name in self.repeated:
             copies = self.repeated[name]
@@ -233,8 +234,9 @@ class _Builder:
 
         # Operation and material.
         op = e.get("op", "union")
-        if op not in ("union", "cut"):
-            ctx.fail(f"unknown op {op!r}", head, p("op"), "op is union (default) or cut")
+        if op not in ("union", "cut", "paint"):
+            ctx.fail(f"unknown op {op!r}", head, p("op"),
+                     "op is union (default), cut (subtracts its shape) or paint (colours the surfaces inside its shape)")
         material = e.get("material")
         if op == "cut":
             if material is not None:
@@ -244,8 +246,12 @@ class _Builder:
                 if key in e:
                     ctx.fail(f"'{key}' does not apply to a cut", head, p(key), "blends join solid parts")
         else:
-            if "from" in e:
-                ctx.fail("'from' only applies to op: cut", head, p("from"), "add op: cut or remove from")
+            if "from" in e and op != "paint":
+                ctx.fail("'from' only applies to op: cut or op: paint", head, p("from"), "add op: cut or op: paint, or remove from")
+            if op == "paint":
+                for key in ("blend", "blend_with"):
+                    if key in e:
+                        ctx.fail(f"'{key}' does not apply to a paint", head, p(key), "a paint adds no geometry to blend")
             if material is None:
                 ctx.fail("solid part has no material", head, base_path,
                          f"add material: <name>; materials in style '{self.style.name}': {_short_list(sorted(self.style.materials), 40)}")
@@ -305,18 +311,21 @@ class _Builder:
         cut_from: list[str] = []
         blend = 0.0
         blend_with = None
-        if op == "cut":
+        from_all = False
+        if op in ("cut", "paint"):
             src = e.get("from")
-            if src is None:
-                if attached_to is None:
-                    ctx.fail("a cut needs 'from: [parts]' or 'from: all', or 'on:' a solid part", head, base_path,
-                             "e.g. on: wall@[0, -1, 1] cuts the wall it sits on")
+            if src is None and attached_to is not None:
                 self.resolve(attached_to, head, p("on"), name, i, solid=True)
                 cut_from = [attached_to]
-            elif src == "all":
+            elif src is None and op == "cut":
+                ctx.fail("a cut needs 'from: [parts]' or 'from: all', or 'on:' a solid part", head, base_path,
+                         "e.g. on: wall@[0, -1, 1] cuts the wall it sits on")
+            elif src is None or src == "all":  # a paint without 'from' paints every earlier solid
+                from_all = True
                 cut_from = [q.name for q in self.parts if q.is_solid]
                 if not cut_from:
-                    ctx.fail("'from: all' but there is no earlier solid part", head, p("from"))
+                    ctx.fail(f"{'from: all' if src else 'this paint'} needs an earlier solid part", head,
+                             p("from") if src else base_path)
             else:
                 for k, ref in enumerate(self.str_list(src, head, p("from"), "from")):
                     if ref in self.repeated and ref not in self.index:
@@ -361,10 +370,16 @@ class _Builder:
         elif "mirror_name" in e:
             ctx.fail("'mirror_name' needs mirror: x | y | z", head, p("mirror_name"))
 
-        total = len(self.parts) + len(placements) + len(twins)
-        if total > MAX_PARTS:
-            ctx.fail(f"more than {MAX_PARTS} parts after expansion (this part brings the total to {total})", head,
-                     base_path, "lower repeat counts or merge small details into larger parts")
+        if op == "paint":
+            total = sum(q.is_paint for q in self.parts) + len(placements) + len(twins)
+            if total > MAX_PAINTS:
+                ctx.fail(f"more than {MAX_PAINTS} paints after expansion (this part brings the total to {total})", head,
+                         base_path, "merge neighbouring paints of one material into one outline")
+        else:
+            total = sum(not q.is_paint for q in self.parts) + len(placements) + len(twins)
+            if total > MAX_PARTS:
+                ctx.fail(f"more than {MAX_PARTS} parts after expansion (this part brings the total to {total})", head,
+                         base_path, "lower repeat counts or merge small details into larger parts")
 
         def make(nm, mat, pos, source, cfrom, bwith, att):
             return Part(name=nm, shape=shape, params=params, matrix=mat, position=clean(pos, 1e-12),
@@ -378,7 +393,7 @@ class _Builder:
             self.repeated[name] = copy_names
         swap = self.twin_of.get
         for k, (orig, tname, mat, pos) in enumerate(twins):
-            t_from = cut_from if e.get("from") == "all" else list(dict.fromkeys(swap(n, n) for n in cut_from))
+            t_from = cut_from if from_all else list(dict.fromkeys(swap(n, n) for n in cut_from))
             source = f"{head} mirror" if not copy_names else f"{head} copy {k} mirror"
             part = make(tname, mat, pos, source, t_from, swap(blend_with, blend_with) if blend_with else None,
                         swap(attached_to, attached_to) if attached_to else None)

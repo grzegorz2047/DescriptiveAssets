@@ -105,6 +105,17 @@ class Camera:
         depth = rel @ self.forward + self.near
         return np.stack([cols, rows], axis=-1), depth
 
+    def follow_light(self, direction) -> np.ndarray:
+        """The light `direction` as it falls on the front view, turned with this camera.
+
+        Concept sheets light every view of a turnaround from the viewer's side; with the light fixed in
+        the world, a back or side view would show its faces in ambient light only. Components of
+        `direction` along x, y, z become components along the camera's right, up and toward-viewer axes,
+        so the front view keeps the style's light unchanged.
+        """
+        d = np.asarray(direction, dtype=np.float64)
+        return d[0] * self.right + d[1] * self.up - d[2] * self.forward
+
 
 def _corners(bounds_min, bounds_max) -> np.ndarray:
     lo = np.asarray(bounds_min, dtype=np.float64)

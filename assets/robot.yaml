@@ -5,7 +5,9 @@ brief: >
   about 2.23 m. Brushed steel plates over a black mechanical frame, blue lights (no emission: a bright
   blue) at the eyes, ears, chest, shoulders, arms, hips, thighs, knees and feet. The back has its own
   plates (upper back, shoulder blades, lower back, spine segments) over the black frame, with a blue
-  light on each shoulder blade; the side views give the depth of every part. Detailed low-poly: the plates follow the divisions `sightline structure` finds in
+  light on each shoulder blade; the side views give the depth of every part, band by band. Where one
+  volume is silver from one side and dark frame from another, op: paint parts colour it as each
+  picture shows (structure --trace fix --paint --conform per view). Detailed low-poly: the plates follow the divisions `sightline structure` finds in
   the concept; no rivets or panel lines; the T-pose keeps it ready for rigging.
 style: default
 tags: [character]
@@ -28,14 +30,14 @@ parts:
     at: [-0.175, 0, 0.055]
     align: bottom
     mirror: x
-  - name: boot_l                     # side profile from the side views: low toe, steep slope, upright ankle
+  - name: boot_l                     # side profile measured on both side pictures: low instep, slim heel top
     shape: extrude
-    points: [[0.15, -0.09], [-0.14, -0.09], [-0.15, -0.05], [-0.04, 0.0], [0.025, 0.05], [0.03, 0.09], [0.13, 0.09], [0.15, 0.0]]
-    depth: 0.13
+    points: [[-0.145, -0.09], [-0.13, -0.06], [-0.085, -0.04], [-0.044, -0.02], [-0.01, 0.0], [0.012, 0.02], [0.025, 0.04], [0.03, 0.09], [0.126, 0.09], [0.132, 0.04], [0.14, -0.01], [0.148, -0.05], [0.152, -0.09]]
+    depth: 0.115
     round: 0.02
     rotate: [0, 90, 0]
     material: metal
-    at: [-0.175, 0.12, 0.06]
+    at: [-0.1525, 0.12, 0.0565]
     mirror: x
   - name: toe_cap_l                  # the wide front of the boot
     shape: box
@@ -66,7 +68,7 @@ parts:
     height: 0.18
     sides: 8
     material: iron
-    at: [-0.155, 0.17, -0.005]
+    at: [-0.147, 0.17, -0.015]
     align: bottom
     mirror: x
   - name: piston_in_l
@@ -74,7 +76,7 @@ parts:
     radius: 0.009
     height: 0.15
     material: metal
-    at: [-0.122, 0.2, 0.035]
+    at: [-0.114, 0.2, 0.012]
     align: bottom
     mirror: x
   - name: piston_out_l
@@ -82,7 +84,7 @@ parts:
     radius: 0.009
     height: 0.15
     material: metal
-    at: [-0.19, 0.2, 0.035]
+    at: [-0.182, 0.2, 0.012]
     align: bottom
     mirror: x
   - name: ankle_disc_l
@@ -99,7 +101,7 @@ parts:
     side: [[0.092, 0.188], [0.074, 0.133], [0.075, 0.053], [0.066, -0.027], [0.057, -0.077], [0.044, -0.127], [0.043, -0.188], [-0.046, -0.188], [-0.049, -0.107], [-0.064, -0.047], [-0.081, -0.007], [-0.092, 0.043], [-0.084, 0.093], [-0.070, 0.133], [-0.051, 0.188]]
     round: 0.025
     material: metal
-    at: [-0.146, 0.407, -0.024]
+    at: [-0.138, 0.407, -0.024]
     mirror: x
   - name: knee_l                     # dark knee mechanism, from the shin guard up into the thigh
     shape: ellipsoid
@@ -121,7 +123,7 @@ parts:
     height: 0.026
     rotate: [0, 0, 90]
     material: iron
-    at: [-0.2, 0.645, 0]
+    at: [-0.188, 0.645, 0]
     mirror: x
   - name: knee_ring_l
     shape: torus
@@ -129,7 +131,7 @@ parts:
     thickness: 0.006
     rotate: [0, 0, 90]
     material: glow_blue
-    at: [-0.214, 0.645, 0]
+    at: [-0.202, 0.645, 0]
     mirror: x
   - name: knee_cap_l                 # the concept's knee cap outline
     shape: extrude
@@ -137,20 +139,21 @@ parts:
     depth: 0.05
     round: 0.012
     material: metal
-    at: [-0.131, 0.622, 0.052]
+    at: [-0.131, 0.622, 0.040]
     mirror: x
   - name: knee_light_l
     shape: box
     size: [0.026, 0.01, 0.02]
     material: glow_blue
-    at: [-0.13, 0.67, 0.08]
+    at: [-0.13, 0.67, 0.068]
     mirror: x
   - name: thigh_core_l               # dark inner thigh, seen between the legs
     shape: capsule
-    radius: 0.04
+    radius: 0.035
     height: 0.4
+    rotate: [0, 0, -7.7]
     material: iron
-    at: [-0.08, 0.82, -0.01]
+    at: [-0.085, 0.81, -0.01]
     mirror: x
   - name: thigh_l                    # thigh armour: the concept's outline, as deep as the thigh
     shape: extrude
@@ -170,10 +173,10 @@ parts:
   - name: inlay_r11_l                 # traced from front picture region R11 (pair R10): bright, raised plate
     shape: extrude
     points: [[-0.052, 0.126], [-0.027, 0.126], [0.002, 0.072], [0.067, 0.076], [0.072, 0.022], [0.047, -0.027], [0.037, -0.126], [-0.027, -0.081], [-0.037, -0.002], [-0.062, 0.002], [-0.072, 0.072]]
-    depth: 0.008
+    side: [[0.021, 0.126], [0.010, 0.092], [0.011, 0.012], [0.002, -0.068], [-0.007, -0.118], [-0.009, -0.126], [-0.021, -0.126], [-0.019, -0.118], [-0.010, -0.068], [-0.001, 0.012], [-0.002, 0.092], [0.009, 0.126]]
     round: 0.002
     material: metal
-    at: [-0.153, 0.448, 0.053]
+    at: [-0.145, 0.448, 0.043]
     mirror: x
   - name: inlay_r30_l                 # traced from front picture region R30 (pair R18): dark, recessed (frame or gap)
     shape: extrude
@@ -189,7 +192,7 @@ parts:
     depth: 0.008
     round: 0.002
     material: metal
-    at: [-0.131, 0.623, 0.077]
+    at: [-0.131, 0.623, 0.065]
     mirror: x
   - name: inlay_r25_l                 # traced from front picture region R25 (pair R26): dark, recessed (frame or gap)
     shape: extrude
@@ -205,14 +208,14 @@ parts:
     depth: 0.008
     round: 0.002
     material: iron
-    at: [-0.192, 0.263, 0.039]
+    at: [-0.184, 0.263, 0.020]
   - name: inlay_r50_l                 # traced from front picture region R50 (pair R64): dark, recessed (frame or gap)
     shape: extrude
     points: [[-0.017, 0.037], [0.022, 0.032], [0.012, -0.037], [-0.022, -0.027]]
     depth: 0.008
     round: 0.002
     material: iron
-    at: [-0.153, 0.241, 0.034]
+    at: [-0.145, 0.241, 0.021]
     mirror: x
   - name: inlay_r51                 # traced from front picture region R51: dark, recessed (frame or gap)
     shape: extrude
@@ -227,7 +230,7 @@ parts:
     depth: 0.008
     round: 0.002
     material: iron
-    at: [-0.158, 0.317, 0.034]
+    at: [-0.150, 0.317, 0.028]
     mirror: x
   - name: inlay_r61                 # traced from front picture region R61: bright, raised plate
     shape: extrude
@@ -235,21 +238,21 @@ parts:
     depth: 0.008
     round: 0.002
     material: metal
-    at: [0.163, 0.298, 0.034]
+    at: [0.155, 0.298, 0.026]
   - name: inlay_r72                 # traced from front picture region R72: bright, raised plate
     shape: extrude
     points: [[-0.007, 0.022], [0.012, 0.022], [0.012, -0.022], [-0.012, -0.022]]
     depth: 0.008
     round: 0.002
     material: metal
-    at: [0.163, 0.231, 0.034]
+    at: [0.155, 0.231, 0.020]
   - name: inlay_r73                 # traced from front picture region R73: dark, recessed (frame or gap)
     shape: extrude
     points: [[-0.015, 0.022], [0.015, 0.022], [0.010, -0.022], [-0.015, -0.017]]
     depth: 0.008
     round: 0.002
     material: iron
-    at: [0.195, 0.216, 0.034]
+    at: [0.187, 0.216, 0.020]
   - name: inlay_r82_l                 # traced from front picture region R82 (pair R86): bright, raised plate
     shape: extrude
     points: [[0.000, 0.020], [0.020, 0.005], [0.005, -0.020], [-0.020, -0.005]]
@@ -314,12 +317,12 @@ parts:
     material: iron
     at: [0, 1.12, -0.02]
     align: bottom
-  - name: abdomen_back_cut           # the waist is slim from the side: its back is flat, 8.5 cm behind the centre
+  - name: abdomen_back_cut           # the waist is slim from the side: its back is flat, 6 cm behind the centre
     shape: box
     size: [0.4, 0.34, 0.2]
     op: cut
     from: [abdomen]
-    at: [0, 1.25, -0.165]
+    at: [0, 1.25, -0.16]
   - name: ab_plate
     shape: box
     size: [0.08, 0.06, 0.05]
@@ -411,30 +414,30 @@ parts:
     shape: box
     size: [0.014, 0.03, 0.02]
     material: glow_blue
-    at: [0, 1.628, 0.063]
+    at: [0, 1.628, 0.045]
   - name: head_core                  # dark behind the face mask: the recesses at the cheeks
     shape: ellipsoid
     size: [0.17, 0.22, 0.19]
     material: iron
     at: [0, 1.775, -0.012]
-  - name: cranium
+  - name: cranium                    # depth and top from the side pictures
     shape: ellipsoid
-    size: [0.17, 0.14, 0.22]
+    size: [0.17, 0.21, 0.236]
     material: metal
-    at: [0, 1.83, 0]
+    at: [0, 1.80, 0.005]
   - name: face                       # hexagonal mask: narrow chin, wide brow
     shape: cone
     radius: 0.04
     top_radius: 0.074
-    height: 0.16
+    height: 0.175
     sides: 6
     rotate: [-10, 0, 0]
     material: metal
-    at: [0, 1.665, 0.082]
+    at: [0, 1.65, 0.082]
     align: bottom
   - name: crest
     shape: box
-    size: [0.03, 0.04, 0.17]
+    size: [0.03, 0.04, 0.12]
     round: 0.01
     material: iron
     at: [0, 1.875, 0]
@@ -578,19 +581,19 @@ parts:
     mirror: x
   - name: finger_b_l
     shape: box
-    size: [0.1, 0.02, 0.018]
+    size: [0.135, 0.02, 0.018]
     round: 0.006
     rotate: [0, 0, 7]
     material: metal
-    at: [-1.025, 1.53, -0.011]
+    at: [-1.0425, 1.53, -0.011]
     mirror: x
   - name: finger_c_l
     shape: box
-    size: [0.12, 0.02, 0.018]
+    size: [0.155, 0.02, 0.018]
     round: 0.006
     rotate: [0, 0, 16]
     material: iron
-    at: [-1.03, 1.512, 0.011]
+    at: [-1.0475, 1.512, 0.011]
     mirror: x
   - name: finger_d_l
     shape: box
@@ -633,7 +636,7 @@ parts:
     round: 0.004
     rotate: [0, 180, 0]
     material: metal
-    at: [0.000, 1.122, -0.084]
+    at: [0.000, 1.122, -0.079]
   - name: plate_back_r49                 # traced from back picture region R49: bright, raised plate
     shape: extrude
     points: [[0.012, 0.030], [-0.037, 0.015], [-0.022, -0.025], [0.012, -0.030], [0.037, -0.010], [0.037, 0.015]]
@@ -641,7 +644,7 @@ parts:
     round: 0.004
     rotate: [0, 180, 0]
     material: metal
-    at: [0.000, 1.319, -0.075]
+    at: [0.000, 1.319, -0.066]
   - name: plate_back_r51                 # traced from back picture region R51: bright, raised plate
     shape: extrude
     points: [[0.012, 0.027], [-0.032, 0.012], [-0.022, -0.027], [0.032, -0.017]]
@@ -649,7 +652,7 @@ parts:
     round: 0.004
     rotate: [0, 180, 0]
     material: metal
-    at: [0.000, 1.257, -0.072]
+    at: [0.000, 1.257, -0.054]
   - name: plate_back_r33_l                 # traced from back picture region R33 (pair R32): bright, raised plate
     shape: extrude
     points: [[0.005, 0.049], [-0.015, 0.049], [-0.035, 0.010], [-0.030, -0.030], [-0.015, -0.049], [0.035, -0.049], [0.035, -0.005]]
@@ -669,104 +672,122 @@ parts:
     at: [-0.106, 1.418, -0.096]
     mirror: x
   # --- side plates traced from the right picture (structure robot --index 2 --trace ... --conform) -
-  - name: plate_right_r10_r                 # traced from right picture region R10: bright, raised plate
+  - name: plate_right_r7_r                 # traced from right picture region R7: bright, raised plate
     shape: extrude
-    points: [[-0.034, 0.041], [-0.060, 0.041], [-0.078, -0.037], [-0.013, -0.024], [0.056, -0.041], [0.056, -0.024], [0.078, -0.015], [0.073, 0.006]]
-    side: [[0.006, 0.043], [-0.003, 0.002], [0.015, -0.043], [0.003, -0.043], [-0.015, 0.002], [-0.006, 0.043]]
+    points: [[0.052, 0.054], [0.095, 0.041], [0.095, 0.024], [0.073, -0.015], [0.009, -0.054], [-0.060, -0.041], [-0.095, 0.006], [-0.095, 0.032], [-0.073, 0.050], [0.013, 0.028]]
+    side: [[0.032, 0.056], [0.034, 0.028], [0.027, 0.002], [-0.022, -0.056], [-0.034, -0.056], [0.015, 0.002], [0.022, 0.028], [0.020, 0.056]]
     round: 0.003
     rotate: [0, 90, 0]
     material: metal
-    at: [0.138, 1.197, 0.004]
+    at: [0.159, 1.401, -0.029]
     mirror: x
-  - name: plate_right_r27_r                 # traced from right picture region R27: bright, raised plate
+  - name: plate_right_r11_r                 # traced from right picture region R11: bright, raised plate
     shape: extrude
-    points: [[0.002, 0.030], [-0.024, 0.030], [-0.028, 0.000], [-0.015, -0.030], [0.028, -0.030]]
-    side: [[0.030, 0.032], [-0.007, -0.004], [-0.018, -0.032], [-0.030, -0.032], [-0.019, -0.004], [0.018, 0.032]]
+    points: [[0.035, 0.045], [0.065, 0.041], [0.078, -0.032], [0.004, -0.019], [-0.078, -0.045], [-0.073, 0.011]]
+    side: [[-0.000, 0.047], [-0.011, 0.024], [-0.011, 0.002], [-0.002, -0.019], [0.023, -0.047], [0.011, -0.047], [-0.014, -0.019], [-0.023, 0.002], [-0.023, 0.024], [-0.012, 0.047]]
     round: 0.003
     rotate: [0, 90, 0]
     material: metal
-    at: [0.077, 1.712, -0.033]
+    at: [0.147, 1.194, -0.003]
+    mirror: x
+  - name: plate_right_r32_r                 # traced from right picture region R32: bright, raised plate
+    shape: extrude
+    points: [[-0.011, 0.030], [0.019, 0.030], [0.011, -0.030], [-0.019, -0.030]]
+    side: [[0.028, 0.032], [-0.011, 0.000], [-0.016, -0.017], [-0.012, -0.032], [-0.024, -0.032], [-0.028, -0.017], [-0.023, 0.000], [0.016, 0.032]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: metal
+    at: [0.086, 1.714, 0.025]
     mirror: x
   - name: plate_right_r29_r                 # traced from right picture region R29: bright, raised plate
     shape: extrude
-    points: [[0.013, 0.041], [-0.004, 0.041], [-0.017, -0.041], [0.017, -0.019]]
-    side: [[0.009, 0.043], [0.003, -0.043], [-0.009, -0.043], [-0.003, 0.043]]
+    points: [[-0.017, 0.039], [0.000, 0.039], [0.017, -0.039], [-0.017, -0.022]]
+    side: [[0.009, 0.041], [0.003, -0.041], [-0.009, -0.041], [-0.003, 0.041]]
     round: 0.003
     rotate: [0, 90, 0]
     material: metal
-    at: [0.202, 1.055, -0.048]
+    at: [0.202, 1.054, 0.044]
     mirror: x
-  - name: plate_right_r43_r                 # traced from right picture region R43: bright, raised plate
+  - name: plate_right_r41_r                 # traced from right picture region R41: bright, surface
     shape: extrude
-    points: [[0.017, 0.015], [-0.017, 0.015], [-0.009, -0.015], [0.017, -0.011]]
-    side: [[0.008, 0.017], [0.004, -0.017], [-0.008, -0.017], [-0.004, 0.017]]
+    points: [[-0.013, 0.017], [0.017, 0.013], [0.009, -0.017], [-0.017, -0.017]]
+    side: [[0.012, 0.019], [0.011, 0.000], [0.000, -0.019], [-0.012, -0.019], [-0.001, 0.000], [-0.000, 0.019]]
     round: 0.003
     rotate: [0, 90, 0]
     material: metal
-    at: [0.211, 1.068, 0.012]
+    at: [0.208, 1.067, -0.016]
     mirror: x
-  - name: plate_right_r11_r                 # traced from right picture region R11: dark, recessed (frame or gap)
+  - name: plate_right_r17_r                 # traced from right picture region R17: dark, recessed (frame or gap)
     shape: extrude
-    points: [[0.002, 0.052], [-0.028, 0.052], [-0.045, -0.052], [0.045, -0.039], [0.045, -0.004], [-0.002, -0.009]]
-    side: [[0.020, 0.162], [-0.001, 0.121], [-0.014, 0.052], [-0.003, 0.000], [0.026, -0.054], [0.014, -0.054], [-0.015, 0.000], [-0.026, 0.052], [-0.013, 0.121], [0.008, 0.162]]
+    points: [[-0.002, 0.041], [0.015, 0.041], [0.019, -0.041], [-0.019, -0.037]]
+    side: [[0.025, 0.168], [0.003, 0.127], [-0.013, 0.041], [-0.006, 0.002], [0.014, -0.043], [0.002, -0.043], [-0.018, 0.002], [-0.025, 0.041], [-0.009, 0.127], [0.013, 0.168]]
     round: 0.003
     rotate: [0, 90, 0]
     material: iron
-    at: [0.189, 0.617, 0.023]
+    at: [0.184, 0.612, -0.040]
     mirror: x
-  - name: plate_right_r15_r                 # traced from right picture region R15: dark, recessed (frame or gap)
+  - name: plate_right_r18_r                 # traced from right picture region R18: dark, recessed (frame or gap)
     shape: extrude
-    points: [[0.022, 0.069], [-0.043, 0.056], [-0.052, 0.004], [-0.022, 0.022], [0.026, 0.017], [0.013, -0.069], [0.034, -0.069], [0.052, 0.039]]
-    side: [[0.015, 0.071], [-0.003, -0.071], [-0.015, -0.071], [0.003, 0.071]]
+    points: [[0.026, 0.039], [0.043, 0.039], [0.043, 0.017], [0.022, -0.039], [-0.043, -0.026], [-0.035, 0.013]]
+    side: [[-0.001, 0.093], [-0.005, 0.026], [0.017, -0.041], [0.005, -0.041], [-0.017, 0.026], [-0.013, 0.093]]
     round: 0.003
     rotate: [0, 90, 0]
     material: iron
-    at: [0.195, 1.066, 0.012]
+    at: [0.189, 1.024, -0.046]
     mirror: x
   - name: plate_right_r26_r                 # traced from right picture region R26: dark, recessed (frame or gap)
     shape: extrude
-    points: [[0.004, 0.037], [-0.017, 0.037], [-0.017, 0.015], [-0.000, -0.037], [0.017, -0.037]]
-    side: [[0.011, 0.039], [0.001, -0.039], [-0.011, -0.039], [-0.001, 0.039]]
+    points: [[0.002, 0.045], [0.019, 0.045], [0.019, 0.011], [-0.002, -0.045], [-0.019, -0.045]]
+    side: [[0.012, 0.047], [0.000, -0.047], [-0.012, -0.047], [-0.000, 0.047]]
     round: 0.003
     rotate: [0, 90, 0]
     material: iron
-    at: [0.213, 0.391, 0.017]
+    at: [0.206, 0.400, -0.018]
+    mirror: x
+  - name: plate_right_r37_r                 # traced from right picture region R37: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.004, 0.026], [0.017, 0.022], [0.017, -0.017], [-0.017, -0.026]]
+    side: [[0.010, 0.028], [-0.003, -0.000], [0.015, -0.028], [0.003, -0.028], [-0.015, -0.000], [-0.002, 0.028]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: iron
+    at: [0.168, 1.045, 0.083]
     mirror: x
   - name: plate_right_r21_r                 # traced from right picture region R21: dark, recessed (frame or gap)
     shape: extrude
-    points: [[0.009, 0.058], [-0.009, 0.058], [-0.026, -0.058], [0.013, -0.054], [0.004, 0.006], [0.022, 0.011], [0.026, 0.037]]
-    side: [[0.001, 0.060], [0.011, -0.002], [0.007, -0.060], [-0.005, -0.060], [-0.001, -0.002], [-0.011, 0.060]]
+    points: [[0.011, 0.054], [0.028, 0.054], [0.024, -0.054], [0.002, -0.054], [-0.028, -0.024], [-0.028, -0.006], [0.006, -0.002]]
+    side: [[0.000, 0.056], [0.012, -0.002], [0.009, -0.056], [-0.003, -0.056], [-0.000, -0.002], [-0.012, 0.056]]
     round: 0.003
     rotate: [0, 90, 0]
     material: iron
-    at: [0.235, 0.158, 0.056]
+    at: [0.203, 0.158, -0.036]
     mirror: x
-  - name: light_right_r46_r                 # traced from right picture region R46: accent blue, light or decal
+  - name: light_right_r53_r                 # traced from right picture region R53: accent blue, light or decal
     shape: extrude
-    points: [[-0.017, 0.019], [-0.026, -0.002], [-0.013, -0.019], [0.026, -0.011], [0.026, 0.015], [0.026, -0.006], [-0.004, -0.015]]
+    points: [[-0.011, 0.006], [0.006, 0.006], [0.011, -0.002], [0.006, -0.006], [0.002, -0.002], [-0.006, -0.002]]
     depth: 0.008
     round: 0.002
     rotate: [0, 90, 0]
     material: glow_blue
-    at: [0.210, 1.064, 0.017]
+    at: [0.214, 1.091, -0.018]
     mirror: x
-  - name: light_right_r65_r                 # traced from right picture region R65: accent blue, light or decal
+  - name: light_right_r63_r                 # traced from right picture region R63: accent blue, light or decal
     shape: extrude
-    points: [[0.017, 0.015], [0.009, 0.006], [-0.004, 0.006], [-0.013, -0.002], [-0.017, -0.002], [-0.017, -0.015], [-0.004, -0.015], [0.009, -0.002]]
+    points: [[-0.013, 0.011], [0.013, 0.002], [0.009, -0.011]]
     depth: 0.008
     round: 0.002
     rotate: [0, 90, 0]
     material: glow_blue
-    at: [0.190, 1.391, -0.057]
+    at: [0.189, 1.384, 0.049]
     mirror: x
-  - name: light_right_r77_r                 # traced from right picture region R77: accent blue, light or decal
+  - name: light_right_r72_r                 # traced from right picture region R72: accent blue, light or decal
     shape: extrude
-    points: [[0.013, 0.015], [-0.013, 0.015], [-0.013, -0.015], [0.013, -0.015]]
+    points: [[-0.011, 0.015], [0.011, 0.015], [0.011, -0.015], [-0.011, -0.015]]
     depth: 0.008
     round: 0.002
     rotate: [0, 90, 0]
     material: glow_blue
-    at: [0.240, 0.152, 0.032]
+    at: [0.215, 0.152, -0.029]
     mirror: x
   # --- plates traced from the concept (sightline structure robot --trace ...) ----------------------
   - name: plate_r4_l                 # traced from picture region R4 (pair R5): dark, recessed (frame or gap)
@@ -791,7 +812,7 @@ parts:
     depth: 0.03
     round: 0.004
     material: metal
-    at: [0.000, 1.118, 0.125]
+    at: [0.000, 1.118, 0.118]
   - name: plate_r18_l                 # traced from picture region R18 (pair R14): bright, raised plate
     shape: extrude
     points: [[0.012, 0.037], [0.072, 0.032], [0.081, -0.012], [0.032, -0.037], [-0.081, -0.032], [-0.081, -0.012]]
@@ -976,15 +997,7 @@ parts:
     depth: 0.03
     round: 0.004
     material: iron
-    at: [0.002, 1.888, 0.038]
-  - name: plate_r83_l                 # traced from picture region R83 (pair R73): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.007, 0.020], [0.012, 0.020], [0.007, -0.020], [-0.012, -0.020]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.153, 1.587, 0.115]
-    mirror: x
+    at: [0.002, 1.888, 0.015]
   - name: plate_r74                 # traced from picture region R74: dark, recessed (frame or gap)
     shape: extrude
     points: [[0.002, 0.017], [0.022, 0.017], [0.022, -0.002], [-0.022, -0.017]]
@@ -1028,13 +1041,1253 @@ parts:
     round: 0.004
     material: metal
     at: [0.094, 1.071, 0.095]
-  - name: plate_r90                 # traced from picture region R90: bright, raised plate
+  # --- collar: the front under the chin falls back to the neck (side pictures) ---------------------
+  - name: collar_slope_cut
+    shape: box
+    size: [0.8, 0.36, 0.2]
+    rotate: [-54.9, 0, 0]
+    op: cut
+    from: [traps, chest_core, lats, deltoid_l, deltoid_r, pec_l, pec_r, plate_r7_l, plate_r7_r, plate_r18_l, plate_r18_r, plate_r19, plate_r22, plate_r37]
+    at: [0, 1.5843, 0.2493]
+  - name: neck_front_cut
+    shape: box
+    size: [0.8, 0.055, 0.2]
+    op: cut
+    from: [traps, chest_core, lats, deltoid_l, deltoid_r, pec_l, pec_r, plate_r7_l, plate_r7_r, plate_r18_l, plate_r18_r, plate_r19, plate_r22, plate_r37]
+    at: [0, 1.6275, 0.15]
+  # --- paints where the model's class differs from the right picture (structure --trace fix --paint --conform)
+  - name: paint_right_f1_r                 # traced from right picture region F1: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.045, 0.039], [0.015, 0.035], [0.063, 0.009], [0.058, -0.039], [-0.015, -0.009], [-0.063, -0.009]]
+    side: [[-0.083, 0.041], [-0.091, 0.030], [-0.086, 0.026], [-0.028, -0.009], [0.130, -0.017], [0.127, -0.026], [0.136, -0.030], [0.126, -0.035], [0.128, -0.043], [0.120, -0.047], [0.136, -0.052], [0.125, -0.056], [0.140, -0.069], [0.126, -0.086], [0.137, -0.091], [0.126, -0.095], [0.133, -0.104], [0.123, -0.112], [0.132, -0.117], [0.068, -0.121], [0.067, -0.129], [0.059, -0.134], [0.022, -0.138], [0.015, -0.155], [0.021, -0.160], [-0.001, -0.181], [0.045, -0.188], [-0.065, -0.188], [-0.063, -0.168], [-0.044, -0.160], [-0.032, -0.138], [-0.034, -0.125], [-0.048, -0.112], [-0.036, -0.104], [-0.036, -0.073], [-0.059, -0.060], [-0.008, -0.056], [-0.056, -0.022], [-0.114, 0.000], [-0.131, 0.017], [-0.140, 0.041]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [lats, upper_back, traps, neck]
+    material: metal
+    at: [0.158, 1.637, -0.044]
+  - name: paint_right_f2_r                 # traced from right picture region F2: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.017, 0.030], [0.039, 0.026], [0.030, -0.030], [-0.013, -0.030], [-0.039, -0.009], [-0.039, 0.026]]
+    side: [[0.012, 0.032], [0.025, -0.013], [0.033, -0.017], [0.041, -0.037], [0.017, -0.037], [-0.007, -0.026], [-0.024, 0.013], [-0.041, 0.026], [-0.015, 0.032]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [knee_r, knee_disc_out_r]
+    material: metal
+    at: [0.180, 0.700, -0.003]
+  - name: paint_right_f3_r                 # traced from right picture region F3: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.032, 0.028], [0.054, 0.019], [0.058, -0.028], [-0.058, -0.002], [-0.058, 0.015]]
+    side: [[0.028, 0.030], [0.033, -0.002], [0.049, -0.006], [0.022, -0.011], [-0.008, -0.035], [-0.045, -0.035], [-0.049, 0.006], [-0.042, 0.011], [-0.048, 0.019], [-0.001, 0.030]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [cranium]
+    material: iron
+    at: [0.064, 1.811, -0.049]
+  - name: paint_right_f4_r                 # traced from right picture region F4: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.022], [0.017, 0.013], [0.004, -0.022], [-0.017, -0.022]]
+    side: [[0.013, 0.063], [0.013, -0.024], [-0.011, -0.024], [-0.013, 0.063]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [boot_r]
+    material: iron
+    at: [0.210, 0.091, -0.012]
+  - name: paint_right_f5_r                 # traced from right picture region F5: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.026, 0.019], [0.030, 0.011], [0.030, -0.006], [-0.030, -0.019]]
+    side: [[0.018, 0.026], [0.038, 0.019], [0.018, 0.006], [0.018, -0.026], [-0.006, -0.026], [-0.038, -0.015], [-0.038, -0.002], [-0.020, 0.026]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [abdomen, plate_r33_r]
+    material: metal
+    at: [0.125, 1.341, 0.031]
+  - name: paint_right_f6_r                 # traced from right picture region F6: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.026, 0.022], [0.026, 0.022], [0.026, 0.004], [-0.022, -0.022]]
+    side: [[0.004, 0.032], [0.004, 0.026], [0.038, 0.022], [0.038, 0.009], [0.031, -0.004], [0.010, -0.009], [0.001, -0.032], [-0.038, -0.032], [-0.030, 0.032]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [knee_r, knee_disc_out_r, knee_ring_r, knee_cap_r]
+    material: metal
+    at: [0.183, 0.618, 0.023]
+  - name: paint_right_f7_r                 # traced from right picture region F7: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.019, 0.009], [0.019, 0.009], [0.019, -0.009], [-0.019, -0.009]]
+    side: [[-0.309, 0.024], [-0.318, 0.004], [0.382, 0.000], [0.411, -0.022], [0.412, -0.035], [0.404, -0.043], [-0.358, -0.050], [-0.392, -0.050], [-0.393, 0.009], [-0.412, 0.024]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [pec_r, shoulder_disc_r, shoulder_ring_r, thumb_r]
+    material: metal
+    at: [0.565, 1.498, 0.081]
+  - name: paint_right_f8_r                 # traced from right picture region F8: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.019, 0.017], [0.019, 0.017], [0.019, -0.013], [-0.019, -0.017]]
+    side: [[0.020, 0.024], [0.005, -0.028], [-0.020, -0.028], [-0.004, 0.024]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [thigh_r]
+    material: iron
+    at: [0.192, 0.760, -0.040]
+  - name: paint_right_f9_r                 # traced from right picture region F9: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.022], [0.011, 0.022], [0.015, -0.022], [-0.015, -0.022]]
+    side: [[0.001, 0.028], [0.060, 0.017], [0.069, -0.024], [0.041, -0.024], [0.034, -0.009], [-0.069, -0.004], [0.030, 0.000], [-0.066, 0.004], [-0.035, 0.028]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [hip_plate_r, plate_back_r4, plate_back_r33_r]
+    material: iron
+    at: [0.143, 1.127, -0.074]
+  - name: paint_right_f10_r                 # traced from right picture region F10: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.006, 0.011], [0.011, 0.011], [0.011, -0.011], [-0.011, -0.011]]
+    side: [[0.094, 0.026], [0.086, 0.011], [0.057, 0.006], [0.060, -0.011], [-0.053, -0.015], [-0.054, -0.028], [-0.067, -0.043], [-0.094, -0.043], [-0.077, -0.024], [-0.077, -0.015], [0.034, -0.011], [0.030, 0.026]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [plate_r7_r, plate_r30, plate_r41_r]
+    material: iron
+    at: [0.102, 1.350, 0.133]
+  - name: paint_right_f11_r                 # traced from right picture region F11: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.024, 0.013], [0.015, 0.013], [0.024, -0.013], [-0.024, -0.004]]
+    side: [[0.077, 0.015], [0.095, -0.019], [0.071, -0.019], [0.055, 0.004], [-0.089, 0.009], [-0.095, 0.015]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [hip_belt_r, plate_r9]
+    material: iron
+    at: [0.073, 1.214, 0.098]
+  - name: paint_right_f12_r                 # traced from right picture region F12: bright, the model shows accent here
+    shape: extrude
+    points: [[-0.015, 0.017], [0.015, 0.017], [0.015, -0.017], [-0.015, -0.004]]
+    side: [[0.017, 0.019], [0.017, -0.032], [-0.007, -0.032], [-0.006, -0.009], [-0.017, -0.004], [-0.013, 0.019]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [thigh_r, thigh_light_r]
+    material: metal
+    at: [0.221, 0.851, 0.003]
+  - name: paint_right_f13_r                 # traced from right picture region F13: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.017, 0.013], [0.017, 0.013], [0.017, -0.009], [-0.017, -0.013]]
+    side: [[0.095, 0.019], [0.095, -0.015], [0.054, -0.015], [-0.095, -0.009], [-0.086, 0.009], [0.058, 0.013], [0.058, 0.019]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [hip_plate_r, plate_back_r4, plate_back_r33_r]
+    material: iron
+    at: [0.127, 1.058, -0.077]
+  - name: paint_right_f14_r                 # traced from right picture region F14: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.009, 0.026], [0.009, 0.017], [0.000, -0.026]]
+    side: [[0.037, 0.028], [0.025, -0.028], [-0.037, -0.028], [-0.019, 0.017], [-0.031, 0.028]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [abdomen, plate_r23, plate_r38]
+    material: metal
+    at: [0.044, 1.261, 0.109]
+  - name: paint_right_f15_r                 # traced from right picture region F15: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.024, 0.013], [0.019, 0.013], [0.024, -0.013]]
+    side: [[0.008, 0.015], [0.016, -0.015], [-0.008, -0.015], [-0.016, 0.015]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [thigh_r]
+    material: iron
+    at: [0.210, 0.989, -0.049]
+  - name: paint_right_f16_r                 # traced from right picture region F16: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.004, 0.017], [0.013, 0.017], [0.009, -0.017], [-0.013, -0.009]]
+    side: [[-0.007, 0.019], [0.005, -0.004], [0.027, -0.009], [0.031, -0.019], [0.007, -0.019], [0.003, -0.009], [-0.019, -0.004], [-0.031, 0.019]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [thigh_r]
+    material: iron
+    at: [0.191, 1.011, 0.014]
+  - name: paint_right_f17_r                 # traced from right picture region F17: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.024, 0.009], [0.019, 0.009], [0.024, -0.009]]
+    side: [[0.008, 0.011], [0.016, -0.011], [-0.008, -0.011], [-0.016, 0.011]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [shin_r]
+    material: iron
+    at: [0.205, 0.575, -0.040]
+  - name: paint_right_f18_r                 # traced from right picture region F18: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.006, 0.022], [0.006, 0.017], [0.006, -0.022], [-0.006, -0.022]]
+    side: [[-0.053, 0.024], [0.082, -0.017], [0.084, -0.024], [0.059, -0.024], [0.055, -0.017], [-0.004, 0.000], [-0.084, 0.004], [-0.084, 0.024]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [palm_r, finger_c_r]
+    material: metal
+    at: [1.052, 1.520, 0.012]
+  - name: paint_right_f19_r                 # traced from right picture region F19: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.015], [0.009, 0.015], [-0.004, -0.015]]
+    side: [[0.124, 0.017], [0.131, 0.002], [0.127, -0.017], [-0.131, -0.017], [-0.131, 0.002], [-0.096, 0.006], [-0.096, 0.017]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [palm_r, plate_r16_r, plate_r70_r]
+    material: iron
+    at: [0.861, 1.544, 0.040]
+  - name: paint_right_f20_r                 # traced from right picture region F20: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.006, 0.017], [0.011, 0.004], [0.006, -0.017], [-0.011, -0.004]]
+    side: [[0.013, 0.019], [0.011, -0.019], [-0.013, -0.019], [-0.011, 0.019]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [shin_r]
+    material: iron
+    at: [0.199, 0.316, -0.010]
+  - name: paint_right_f21_r                 # traced from right picture region F21: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.002, 0.019], [0.011, 0.006], [-0.011, -0.019]]
+    side: [[0.013, 0.022], [0.018, -0.022], [-0.006, -0.022], [-0.018, 0.022]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [shin_r, inlay_r11_r]
+    material: iron
+    at: [0.211, 0.534, 0.042]
+  - name: paint_right_f22_r                 # traced from right picture region F22: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.019], [0.000, 0.019], [0.004, 0.011], [0.009, -0.019], [0.000, -0.019], [0.000, -0.015], [-0.009, -0.006]]
+    side: [[0.015, 0.022], [0.012, -0.022], [-0.015, -0.022], [-0.014, 0.022]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [boot_r, plate_right_r21_r]
+    material: iron
+    at: [0.210, 0.111, -0.068]
+  - name: paint_right_f23_r                 # traced from right picture region F23: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.006, 0.015], [0.006, 0.015], [0.006, -0.015]]
+    side: [[0.015, 0.017], [0.028, -0.017], [-0.028, -0.017], [-0.018, -0.006], [-0.024, 0.006], [-0.011, 0.011], [-0.011, 0.017]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [upper_back, plate_back_r12]
+    material: iron
+    at: [0.130, 1.539, -0.126]
+  - name: paint_right_f24_r                 # traced from right picture region F24: accent, the model shows bright here
+    shape: extrude
+    points: [[-0.006, 0.009], [0.006, 0.004], [-0.006, -0.009]]
+    side: [[0.018, 0.011], [0.021, 0.000], [0.008, -0.011], [-0.016, -0.011], [-0.021, -0.004], [-0.009, 0.011]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [cranium]
+    material: glow_blue
+    at: [0.057, 1.770, 0.081]
+  - name: paint_right_f25_r                 # traced from right picture region F25: accent, the model shows dark here
+    shape: extrude
+    points: [[0.006, 0.015], [0.006, -0.006], [-0.002, -0.015], [-0.006, -0.015], [0.006, -0.002]]
+    side: [[0.014, 0.017], [0.010, -0.017], [-0.014, -0.017], [-0.010, 0.017]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [hip_plate_r]
+    material: glow_blue
+    at: [0.204, 1.060, -0.031]
+  - name: paint_right_f26_r                 # traced from right picture region F26: accent, the model shows dark here
+    shape: extrude
+    points: [[0.002, 0.006], [0.006, 0.006], [-0.002, -0.002], [-0.002, -0.006], [-0.006, 0.002]]
+    side: [[0.013, 0.009], [0.011, -0.009], [-0.013, -0.009], [-0.011, 0.009]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [hip_disc_r, hip_ring_r]
+    material: glow_blue
+    at: [0.217, 1.082, 0.003]
+  - name: paint_right_f27_r                 # traced from right picture region F27: accent, the model shows bright here
+    shape: extrude
+    points: [[-0.004, 0.004], [0.000, 0.004], [0.004, -0.004], [0.000, -0.004]]
+    side: [[0.011, 0.006], [0.013, -0.006], [-0.011, -0.006], [-0.013, 0.006]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [rib_plate_r]
+    material: glow_blue
+    at: [0.190, 1.404, 0.070]
+  - name: paint_right_f28_r                 # traced from right picture region F28: accent, the model shows dark here
+    shape: extrude
+    points: [[-0.002, 0.009], [0.002, -0.009], [-0.002, -0.004]]
+    side: [[0.012, 0.011], [0.012, -0.011], [-0.012, -0.011], [-0.012, 0.011]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [hip_disc_r, hip_ring_r]
+    material: glow_blue
+    at: [0.215, 1.058, 0.008]
+  - name: paint_right_f29_r                 # traced from right picture region F29: accent, the model shows bright here
+    shape: extrude
+    points: [[-0.004, 0.006], [0.000, 0.006], [0.004, -0.006]]
+    side: [[0.014, 0.009], [0.010, -0.009], [-0.014, -0.009], [-0.010, 0.009]]
+    rotate: [0, 90, 0]
+    op: paint
+    from: [thigh_r]
+    material: glow_blue
+    at: [0.207, 0.810, -0.003]
+  # --- paints where the model's class differs from the left picture (structure --trace fix --paint --conform)
+  - name: paint_left_f1_l                 # traced from left picture region F1: bright, the model shows dark here
+    shape: extrude
+    points: [[0.009, 0.065], [0.060, 0.035], [0.065, -0.043], [0.086, -0.047], [0.086, -0.065], [0.039, -0.065], [0.026, -0.004], [-0.013, -0.004], [-0.086, 0.030], [-0.086, 0.047]]
+    side: [[0.057, 0.071], [0.065, 0.056], [0.062, -0.009], [0.036, -0.013], [0.031, -0.067], [-0.040, -0.067], [-0.040, -0.047], [-0.012, -0.043], [-0.020, -0.022], [-0.013, -0.017], [-0.013, 0.022], [-0.020, 0.035], [0.000, 0.039], [-0.065, 0.052], [0.023, 0.071]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [abdomen, plate_r17, plate_r33_l]
+    material: metal
+    at: [-0.082, 1.296, 0.027]
+  - name: paint_left_f2_l                 # traced from left picture region F2: dark, the model shows bright here
+    shape: extrude
+    points: [[0.026, 0.041], [0.065, 0.041], [0.056, -0.024], [0.004, -0.041], [-0.017, -0.002], [-0.065, -0.006], [-0.065, 0.015], [0.022, 0.015]]
+    side: [[0.025, 0.043], [0.025, 0.028], [0.001, 0.024], [0.025, 0.015], [0.039, -0.052], [0.015, -0.052], [0.012, -0.024], [-0.010, 0.002], [-0.029, 0.006], [-0.039, 0.019], [-0.025, 0.028], [-0.033, 0.043]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [thigh_l]
+    material: iron
+    at: [-0.193, 0.987, -0.029]
+  - name: paint_left_f3_l                 # traced from left picture region F3: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.004, 0.032], [0.017, 0.032], [0.035, -0.006], [-0.035, -0.032], [-0.035, 0.011]]
+    side: [[-0.052, 0.060], [-0.056, 0.041], [-0.010, 0.024], [0.042, -0.006], [0.090, -0.050], [0.040, -0.054], [0.046, -0.063], [0.033, -0.073], [-0.005, -0.073], [-0.016, -0.058], [-0.010, -0.054], [0.044, -0.050], [0.042, -0.045], [0.016, -0.032], [-0.001, -0.015], [-0.066, 0.015], [-0.075, 0.032], [-0.090, 0.041], [-0.086, 0.060]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [upper_back, traps]
+    material: metal
+    at: [-0.103, 1.630, -0.072]
+  - name: paint_left_f4_l                 # traced from left picture region F4: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.056, 0.028], [-0.004, 0.006], [0.056, 0.006], [0.056, -0.011], [0.022, -0.028], [-0.022, -0.019], [-0.056, 0.002]]
+    side: [[0.017, 0.030], [0.018, 0.006], [0.006, -0.030], [-0.018, -0.030], [-0.006, 0.006], [-0.010, 0.030]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_right_r7_l]
+    material: iron
+    at: [-0.187, 1.423, -0.038]
+  - name: paint_left_f5_l                 # traced from left picture region F5: bright, the model shows dark here
+    shape: extrude
+    points: [[0.004, 0.030], [0.043, 0.017], [0.039, -0.026], [-0.013, -0.030], [-0.022, 0.000], [-0.043, 0.004], [-0.043, 0.022]]
+    side: [[0.029, 0.032], [0.035, 0.017], [0.035, -0.032], [0.004, -0.032], [0.004, 0.000], [-0.026, 0.004], [-0.035, 0.017], [0.005, 0.032]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [head_core, ear_l, ear_ring_l]
+    material: metal
+    at: [-0.084, 1.775, -0.025]
+  - name: paint_left_f6_l                 # traced from left picture region F6: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.024, 0.037], [0.037, 0.024], [-0.006, -0.037], [-0.037, -0.019]]
+    side: [[0.012, 0.039], [0.026, -0.006], [0.041, -0.024], [0.040, -0.043], [0.010, -0.043], [0.010, -0.024], [-0.006, -0.015], [-0.015, 0.002], [-0.029, 0.006], [-0.041, 0.024], [-0.034, 0.028], [-0.040, 0.032], [-0.015, 0.039]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [knee_l, knee_disc_out_l, knee_ring_l]
+    material: metal
+    at: [-0.179, 0.694, 0.008]
+  - name: paint_left_f7_l                 # traced from left picture region F7: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.052, 0.039], [0.026, 0.039], [0.026, 0.004], [0.056, -0.013], [0.056, -0.039], [0.039, -0.039], [0.022, 0.004], [-0.056, 0.017]]
+    side: [[0.004, 0.041], [0.023, -0.045], [-0.005, -0.045], [-0.005, -0.022], [-0.023, 0.022], [-0.020, 0.041]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.208, 0.545, -0.016]
+  - name: paint_left_f8_l                 # traced from left picture region F8: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.015, 0.037], [0.041, 0.006], [0.028, -0.028], [-0.037, -0.037], [-0.041, 0.002], [-0.015, 0.006]]
+    side: [[-0.135, 0.043], [-0.106, 0.028], [-0.094, 0.011], [0.253, 0.002], [-0.095, -0.002], [-0.121, -0.028], [-0.201, -0.039], [-0.253, -0.039], [-0.243, -0.011], [-0.223, 0.002], [-0.163, 0.006], [-0.165, 0.024], [-0.177, 0.043]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [lats, upper_back]
+    material: metal
+    at: [-0.335, 1.488, -0.083]
+  - name: paint_left_f9_l                 # traced from left picture region F9: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.047, 0.032], [-0.004, 0.006], [0.047, 0.002], [0.047, -0.015], [-0.004, -0.015], [-0.030, -0.032], [-0.047, -0.011]]
+    side: [[0.333, 0.039], [0.468, -0.002], [0.464, -0.024], [0.417, -0.028], [0.416, -0.035], [-0.459, -0.035], [0.390, -0.019], [-0.463, -0.015], [-0.440, 0.002], [-0.468, 0.006], [-0.458, 0.015], [0.302, 0.019], [0.341, 0.024], [0.311, 0.032], [0.308, 0.039]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [shoulder_disc_l, thumb_l, finger_c_l, finger_d_l]
+    material: metal
+    at: [-0.666, 1.505, 0.049]
+  - name: paint_left_f10_l                 # traced from left picture region F10: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.032, 0.032], [0.006, 0.024], [0.032, -0.019], [0.019, -0.032], [-0.028, -0.019]]
+    side: [[0.010, 0.039], [0.010, 0.015], [0.019, 0.006], [0.019, -0.019], [0.010, -0.024], [0.010, -0.039], [-0.014, -0.039], [-0.019, -0.002], [-0.014, 0.002], [-0.015, 0.039]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [boot_l, light_right_r72_l]
+    material: iron
+    at: [-0.212, 0.158, -0.010]
+  - name: paint_left_f11_l                 # traced from left picture region F11: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.024, 0.009], [0.024, 0.009], [0.024, -0.009], [-0.024, -0.009]]
+    side: [[0.008, 0.032], [0.016, 0.000], [0.028, -0.013], [0.015, -0.017], [0.015, -0.028], [-0.010, -0.028], [-0.017, 0.013], [-0.026, 0.017], [-0.028, 0.032]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [hip_plate_l, hip_disc_l]
+    material: metal
+    at: [-0.202, 1.110, 0.008]
+  - name: paint_left_f12_l                 # traced from left picture region F12: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.035], [0.013, 0.035], [0.009, -0.035], [-0.009, -0.035]]
+    side: [[0.015, 0.041], [0.009, -0.045], [-0.015, -0.045], [-0.009, 0.041]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.198, 0.299, -0.012]
+  - name: paint_left_f13_l                 # traced from left picture region F13: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.024, 0.011], [0.024, 0.006], [0.024, -0.011], [-0.024, -0.011]]
+    side: [[0.016, 0.017], [0.009, -0.002], [0.018, -0.011], [0.006, -0.017], [-0.018, -0.017], [-0.011, 0.017]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_right_r11_l]
+    material: iron
+    at: [-0.142, 1.224, -0.031]
+  - name: paint_left_f14_l                 # traced from left picture region F14: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.019, 0.022], [0.019, 0.013], [0.019, -0.022], [-0.006, -0.022]]
+    side: [[0.015, 0.028], [0.009, -0.024], [-0.015, -0.024], [-0.009, 0.028]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [boot_l]
+    material: iron
+    at: [-0.208, 0.057, -0.014]
+  - name: paint_left_f15_l                 # traced from left picture region F15: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.009], [0.009, 0.009], [0.009, -0.009], [-0.009, -0.009]]
+    side: [[0.020, 0.088], [0.013, -0.015], [-0.014, -0.015], [-0.019, -0.009], [-0.014, 0.035], [-0.020, 0.039], [-0.011, 0.088]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.189, 0.243, -0.059]
+  - name: paint_left_f16_l                 # traced from left picture region F16: bright, the model shows accent here
+    shape: extrude
+    points: [[-0.015, 0.024], [0.015, 0.024], [0.015, -0.024], [-0.015, -0.024]]
+    side: [[0.012, 0.026], [0.012, -0.026], [-0.012, -0.026], [-0.012, 0.026]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [thigh_light_l]
+    material: metal
+    at: [-0.226, 0.845, -0.001]
+  - name: paint_left_f17_l                 # traced from left picture region F17: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.004, 0.022], [0.013, 0.022], [0.004, -0.022], [-0.013, -0.022]]
+    side: [[0.033, 0.024], [-0.004, -0.013], [-0.005, -0.041], [-0.029, -0.041], [-0.033, -0.022], [-0.027, -0.009], [0.009, 0.024]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_right_r32_l]
+    material: iron
+    at: [-0.090, 1.723, 0.023]
+  - name: paint_left_f18_l                 # traced from left picture region F18: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.011], [0.009, 0.011], [0.009, -0.011], [-0.009, -0.011]]
+    side: [[0.012, 0.039], [0.012, -0.026], [-0.012, -0.026], [-0.012, 0.039]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [thigh_l]
+    material: iron
+    at: [-0.220, 0.888, -0.051]
+  - name: paint_left_f19_l                 # traced from left picture region F19: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.015], [0.013, 0.015], [0.013, -0.015], [-0.009, -0.015]]
+    side: [[0.016, 0.035], [0.017, 0.002], [0.007, -0.017], [-0.017, -0.017], [-0.007, 0.002], [-0.008, 0.035]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_right_r41_l, light_right_r53_l]
+    material: iron
+    at: [-0.214, 1.065, -0.016]
+  - name: paint_left_f20_l                 # traced from left picture region F20: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.024, 0.017], [-0.006, 0.017], [0.024, -0.009], [0.024, -0.017], [0.006, -0.017], [-0.024, 0.009]]
+    side: [[0.014, 0.019], [0.010, -0.019], [-0.014, -0.019], [-0.010, 0.019]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.217, 0.467, -0.049]
+  - name: paint_left_f21_l                 # traced from left picture region F21: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.028, 0.011], [0.028, -0.011], [-0.024, -0.006]]
+    side: [[-0.021, 0.013], [-0.021, 0.002], [-0.011, -0.002], [0.040, -0.006], [0.045, -0.013], [0.021, -0.013], [0.016, -0.006], [-0.045, -0.002], [-0.045, 0.013]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [hip_plate_l, abdomen]
+    material: metal
+    at: [-0.165, 1.160, 0.012]
+  - name: paint_left_f22_l                 # traced from left picture region F22: dark, the model shows accent here
+    shape: extrude
+    points: [[0.009, 0.017], [0.017, -0.009], [-0.017, -0.017]]
+    side: [[0.013, 0.019], [0.013, -0.019], [-0.013, -0.019], [-0.012, 0.019]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [knee_ring_l]
+    material: iron
+    at: [-0.207, 0.640, 0.005]
+  - name: paint_left_f23_l                 # traced from left picture region F23: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.006, 0.022], [0.002, 0.022], [0.002, 0.013], [0.006, 0.009], [0.006, -0.017], [0.002, -0.022], [-0.006, -0.022]]
+    side: [[0.022, 0.024], [0.020, -0.004], [0.005, -0.009], [0.006, -0.024], [-0.019, -0.024], [-0.022, -0.009], [-0.014, 0.009], [-0.020, 0.024]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [pelvis, hip_plate_l, plate_right_r37_l]
+    material: metal
+    at: [-0.177, 1.058, 0.072]
+  - name: paint_left_f24_l                 # traced from left picture region F24: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.002, 0.015], [0.011, -0.015], [-0.011, -0.015]]
+    side: [[0.014, 0.017], [0.014, -0.017], [-0.011, -0.017], [-0.014, 0.017]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_back_r33_l]
+    material: iron
+    at: [-0.209, 1.060, -0.070]
+  - name: paint_left_f25_l                 # traced from left picture region F25: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.019], [-0.000, 0.019], [-0.000, 0.011], [0.009, -0.006], [0.009, -0.019], [-0.000, -0.019], [-0.009, -0.006]]
+    side: [[0.011, 0.022], [0.014, -0.022], [-0.011, -0.022], [-0.014, 0.022]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_r59_l]
+    material: iron
+    at: [-0.174, 1.086, 0.087]
+  - name: paint_left_f26_l                 # traced from left picture region F26: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.015], [0.009, -0.015], [-0.009, -0.015]]
+    side: [[0.013, 0.017], [0.011, -0.017], [-0.013, -0.017], [-0.012, 0.017]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [plate_right_r29_l]
+    material: iron
+    at: [-0.209, 1.065, 0.049]
+  - name: paint_left_f27_l                 # traced from left picture region F27: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.015], [0.009, 0.011], [0.000, -0.015]]
+    side: [[0.008, 0.017], [0.018, -0.002], [0.017, -0.017], [-0.018, -0.017], [-0.017, 0.017]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [hip_belt_l, plate_r9]
+    material: iron
+    at: [-0.152, 1.194, 0.118]
+  - name: paint_left_f28_l                 # traced from left picture region F28: bright, the model shows dark here
+    shape: extrude
+    points: [[0.000, 0.019], [0.009, 0.006], [-0.009, -0.019]]
+    side: [[0.020, 0.022], [0.022, -0.006], [0.015, -0.022], [-0.017, -0.022], [-0.015, -0.015], [-0.022, -0.011], [-0.012, 0.002], [-0.020, 0.006], [-0.012, 0.022]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [knee_l]
+    material: metal
+    at: [-0.168, 0.607, 0.036]
+  - name: paint_left_f29_l                 # traced from left picture region F29: dark, the model shows bright here
+    shape: extrude
+    points: [[0.004, 0.017], [0.009, -0.017], [-0.009, -0.009]]
+    side: [[0.061, 0.019], [0.069, 0.004], [0.083, -0.009], [0.103, -0.013], [0.102, -0.019], [0.049, -0.019], [0.041, 0.000], [0.027, 0.004], [0.022, 0.013], [-0.103, 0.019]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [thigh_l]
+    material: iron
+    at: [-0.113, 1.015, 0.100]
+  - name: paint_left_f30_l                 # traced from left picture region F30: accent, the model shows bright here
+    shape: extrude
+    points: [[-0.009, 0.006], [0.009, -0.002], [0.009, -0.006], [0.004, -0.006]]
+    side: [[0.020, 0.009], [0.007, -0.009], [-0.020, -0.009], [-0.007, 0.009]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [cranium, face]
+    material: glow_blue
+    at: [-0.046, 1.755, 0.096]
+  - name: paint_left_f31_l                 # traced from left picture region F31: accent, the model shows bright here
+    shape: extrude
+    points: [[-0.004, 0.006], [0.004, 0.006], [0.000, -0.006], [-0.004, -0.002]]
+    side: [[0.013, 0.009], [0.011, -0.009], [-0.013, -0.009], [-0.012, 0.009]]
+    rotate: [0, -90, 0]
+    op: paint
+    from: [thigh_l]
+    material: glow_blue
+    at: [-0.210, 0.819, 0.023]
+  # --- paints where the model's class differs from the back picture (structure --trace fix --paint --conform)
+  - name: paint_back_f1                 # traced from back picture region F1: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.115, 0.056], [0.104, 0.025], [0.115, -0.036], [-0.115, -0.056]]
+    side: [[-0.035, 0.059], [0.029, 0.051], [0.060, 0.020], [0.060, -0.025], [0.030, -0.059], [0.002, -0.059], [0.002, -0.036], [0.021, -0.015], [0.022, 0.010], [0.002, 0.046], [-0.060, 0.051], [-0.060, 0.059]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [forearm_l]
+    material: iron
+    at: [-0.718, 1.538, -0.006]
+  - name: paint_back_f2                 # traced from back picture region F2: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.038, 0.127], [0.023, 0.107], [0.008, -0.020], [0.048, -0.031], [0.053, -0.127], [0.008, -0.107], [-0.053, -0.117]]
+    side: [[0.057, 0.150], [0.033, 0.066], [0.029, 0.000], [0.013, -0.020], [0.025, -0.025], [0.046, -0.160], [0.016, -0.160], [-0.002, -0.071], [0.004, -0.066], [-0.001, -0.025], [-0.039, -0.020], [-0.042, -0.005], [-0.057, 0.005], [-0.004, 0.010], [-0.000, 0.081], [0.014, 0.102], [0.028, 0.150]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [boot_r, shin_r]
+    material: iron
+    at: [0.153, 0.235, -0.053]
+  - name: paint_back_f3                 # traced from back picture region F3: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.043, 0.056], [0.048, 0.056], [0.053, -0.036], [-0.008, -0.025], [-0.053, -0.056]]
+    side: [[0.016, 0.079], [-0.018, 0.071], [-0.017, 0.061], [0.023, 0.056], [0.044, -0.079], [0.014, -0.079], [-0.002, -0.036], [0.005, -0.031], [-0.004, 0.056], [-0.041, 0.061], [-0.044, 0.079]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [boot_l]
+    material: iron
+    at: [-0.153, 0.153, -0.055]
+  - name: paint_back_f4                 # traced from back picture region F4: dark, the model shows bright here
+    shape: extrude
+    points: [[0.010, 0.087], [0.036, 0.076], [0.031, -0.056], [0.020, -0.087], [-0.010, -0.087], [-0.036, 0.036], [0.010, 0.051]]
+    side: [[0.036, 0.099], [0.013, 0.036], [-0.001, -0.071], [-0.010, -0.089], [-0.034, -0.089], [-0.030, 0.000], [-0.036, 0.020], [-0.013, 0.041], [-0.014, 0.051], [0.012, 0.099]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.160, 0.311, -0.084]
+  - name: paint_back_f5                 # traced from back picture region F5: bright, the model shows dark here
+    shape: extrude
+    points: [[0.020, 0.023], [0.076, 0.018], [0.066, -0.023], [-0.076, -0.018], [-0.076, 0.018]]
+    side: [[0.033, 0.031], [0.050, 0.013], [0.048, -0.008], [0.043, -0.023], [0.022, -0.031], [-0.040, -0.031], [-0.050, -0.023], [-0.033, -0.003], [-0.032, 0.018], [-0.006, 0.031]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [head_core, ear_l]
+    material: metal
+    at: [-0.023, 1.754, -0.069]
+  - name: paint_back_f6                 # traced from back picture region F6: bright, the model shows dark here
+    shape: extrude
+    points: [[0.010, 0.048], [0.041, 0.043], [0.041, 0.008], [0.000, -0.048], [-0.025, -0.048], [-0.041, -0.003]]
+    side: [[0.038, 0.056], [0.022, 0.043], [0.041, 0.028], [0.030, 0.023], [0.041, 0.018], [0.030, 0.013], [0.041, 0.008], [0.028, 0.003], [0.024, -0.023], [0.001, -0.038], [0.001, -0.051], [-0.023, -0.051], [-0.023, -0.038], [-0.041, -0.033], [-0.040, -0.013], [-0.033, -0.008], [-0.041, 0.008], [-0.032, 0.018], [-0.038, 0.023], [-0.031, 0.038], [0.004, 0.056]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [abdomen, chest_core]
+    material: metal
+    at: [-0.130, 1.398, -0.071]
+  - name: paint_back_f7                 # traced from back picture region F7: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.033, 0.046], [0.013, 0.036], [0.038, -0.005], [0.028, -0.046], [0.003, -0.046], [-0.038, 0.005]]
+    side: [[0.028, 0.048], [0.035, 0.036], [0.030, 0.031], [0.041, 0.025], [0.030, 0.020], [0.041, 0.015], [0.030, 0.010], [0.041, 0.005], [0.028, 0.000], [0.022, -0.025], [0.001, -0.041], [0.001, -0.053], [-0.023, -0.053], [-0.023, -0.041], [-0.041, -0.036], [-0.040, -0.015], [-0.033, -0.010], [-0.041, 0.005], [-0.032, 0.015], [-0.038, 0.020], [-0.031, 0.036], [-0.010, 0.048]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [abdomen, chest_core]
+    material: metal
+    at: [0.132, 1.400, -0.071]
+  - name: paint_back_f8                 # traced from back picture region F8: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.053, 0.033], [0.028, 0.023], [0.053, -0.033], [0.003, -0.033], [-0.053, 0.013]]
+    side: [[0.032, 0.036], [0.053, 0.023], [0.049, 0.003], [0.027, -0.018], [-0.009, -0.036], [-0.053, -0.036], [-0.009, -0.018], [-0.005, 0.008], [-0.037, 0.023], [-0.033, 0.036]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [deltoid_l]
+    material: iron
+    at: [-0.234, 1.540, -0.059]
+  - name: paint_back_f9                 # traced from back picture region F9: dark, the model shows bright here
+    shape: extrude
+    points: [[0.010, 0.028], [0.046, 0.028], [0.046, 0.008], [0.005, -0.028], [-0.046, -0.028], [-0.046, -0.008]]
+    side: [[0.029, 0.041], [0.053, 0.023], [0.049, 0.008], [0.028, -0.013], [-0.009, -0.031], [-0.053, -0.031], [-0.009, -0.013], [-0.005, 0.013], [-0.037, 0.028], [-0.033, 0.041]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [deltoid_r]
+    material: iron
+    at: [0.242, 1.535, -0.059]
+  - name: paint_back_f10                 # traced from back picture region F10: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.043, 0.013], [0.028, 0.013], [0.043, -0.013], [-0.043, -0.008]]
+    side: [[0.020, 0.020], [0.025, 0.008], [0.018, -0.013], [0.002, -0.031], [-0.024, -0.031], [-0.025, -0.008], [-0.005, 0.020]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [forearm_r]
+    material: iron
+    at: [0.779, 1.510, -0.033]
+  - name: paint_back_f11                 # traced from back picture region F11: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.025], [0.031, 0.025], [0.025, -0.025], [-0.031, -0.025]]
+    side: [[0.010, 0.028], [0.018, 0.000], [0.013, -0.028], [-0.011, -0.028], [-0.007, 0.005], [-0.018, 0.028]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [plate_back_r33_r]
+    material: iron
+    at: [0.176, 1.090, -0.093]
+  - name: paint_back_f12                 # traced from back picture region F12: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.000, 0.028], [0.031, 0.023], [0.036, -0.003], [-0.036, -0.028], [-0.036, -0.003]]
+    side: [[0.024, 0.036], [0.027, 0.013], [0.042, 0.008], [0.044, -0.008], [0.028, -0.031], [-0.009, -0.031], [-0.031, -0.023], [-0.023, -0.018], [-0.044, 0.003], [-0.007, 0.036]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [lats]
+    material: iron
+    at: [-0.186, 1.484, -0.080]
+  - name: paint_back_f13                 # traced from back picture region F13: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.013, 0.023], [0.033, 0.023], [0.033, -0.018], [-0.033, -0.023]]
+    side: [[0.018, 0.031], [0.051, 0.023], [0.053, -0.018], [0.002, -0.023], [-0.001, -0.031], [-0.026, -0.031], [-0.053, -0.013], [-0.040, -0.008], [-0.050, -0.003], [-0.048, 0.008], [-0.033, 0.018], [-0.042, 0.031]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [head_core, cranium, ear_r]
+    material: metal
+    at: [0.066, 1.805, -0.062]
+  - name: paint_back_f14                 # traced from back picture region F14: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.013, 0.020], [0.023, 0.010], [0.013, -0.020], [-0.023, -0.010]]
+    side: [[0.015, 0.043], [0.016, -0.023], [-0.008, -0.023], [-0.016, -0.010], [-0.009, 0.043]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [abdomen, spine]
+    material: metal
+    at: [-0.000, 1.192, -0.064]
+  - name: paint_back_f15                 # traced from back picture region F15: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.020], [0.023, 0.020], [0.003, -0.020], [-0.023, -0.020]]
+    side: [[0.010, 0.023], [0.017, -0.038], [-0.013, -0.038], [-0.017, 0.023]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [thigh_l]
+    material: iron
+    at: [-0.127, 1.019, -0.090]
+  - name: paint_back_f16                 # traced from back picture region F16: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.015, 0.015], [0.020, 0.015], [0.025, -0.010], [-0.025, -0.015]]
+    side: [[0.001, 0.043], [0.023, -0.018], [-0.003, -0.018], [-0.023, 0.043]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [upper_back, traps]
+    material: metal
+    at: [0.003, 1.604, -0.128]
+  - name: paint_back_f17                 # traced from back picture region F17: bright, the model shows dark here
+    shape: extrude
+    points: [[0.000, 0.023], [0.020, 0.023], [0.020, -0.018], [-0.020, -0.023]]
+    side: [[0.037, 0.031], [0.044, 0.003], [0.033, -0.025], [-0.044, -0.025], [-0.044, -0.013], [-0.011, -0.008], [-0.014, -0.003], [0.004, 0.008], [0.009, 0.031]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [upper_arm_core_l]
+    material: metal
+    at: [-0.344, 1.520, -0.018]
+  - name: paint_back_f18                 # traced from back picture region F18: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.036, 0.033], [0.010, 0.028], [0.036, -0.033]]
+    side: [[0.012, 0.036], [0.019, -0.036], [-0.014, -0.036], [-0.019, -0.018], [-0.008, 0.003], [-0.015, 0.036]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [thigh_r]
+    material: iron
+    at: [0.125, 1.006, -0.088]
+  - name: paint_back_f19                 # traced from back picture region F19: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.018, 0.043], [0.013, 0.008], [0.018, -0.043]]
+    side: [[0.026, 0.046], [0.026, 0.008], [0.007, -0.046], [-0.026, -0.046], [-0.012, -0.013], [-0.017, -0.008], [-0.009, 0.003], [-0.013, 0.008], [-0.006, 0.018], [-0.005, 0.046]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.092, 0.426, -0.099]
+  - name: paint_back_f20                 # traced from back picture region F20: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.008, 0.028], [0.013, 0.028], [0.013, -0.028], [-0.013, -0.028]]
+    side: [[0.009, 0.031], [0.015, -0.031], [-0.009, -0.031], [-0.015, 0.031]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [boot_r]
+    material: iron
+    at: [0.158, 0.059, -0.089]
+  - name: paint_back_f21                 # traced from back picture region F21: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.018, 0.020], [0.003, 0.020], [0.018, -0.020], [-0.018, -0.020]]
+    side: [[0.037, 0.033], [0.044, 0.005], [0.035, -0.023], [-0.043, -0.023], [-0.044, -0.010], [-0.011, -0.005], [-0.013, 0.000], [0.004, 0.010], [0.009, 0.033]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [upper_arm_core_r, plate_r4_r]
+    material: metal
+    at: [0.341, 1.518, -0.018]
+  - name: paint_back_f22                 # traced from back picture region F22: dark, the model shows bright here
+    shape: extrude
+    points: [[0.010, 0.028], [0.031, 0.018], [-0.031, -0.028]]
+    side: [[0.008, 0.031], [0.017, -0.031], [-0.007, -0.031], [-0.017, 0.031]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [plate_back_r4]
+    material: iron
+    at: [-0.043, 1.174, -0.086]
+  - name: paint_back_f23                 # traced from back picture region F23: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.008, 0.020], [0.013, 0.020], [0.013, -0.020], [-0.013, -0.020]]
+    side: [[0.009, 0.033], [0.015, -0.023], [-0.009, -0.023], [-0.015, 0.033]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [boot_l]
+    material: iron
+    at: [-0.158, 0.052, -0.089]
+  - name: paint_back_f24                 # traced from back picture region F24: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.010, 0.018], [0.015, 0.013], [0.015, -0.018], [-0.015, -0.018]]
+    side: [[0.012, 0.020], [0.012, -0.020], [-0.012, -0.020], [-0.012, 0.020]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [pelvis]
+    material: metal
+    at: [0.125, 1.062, -0.085]
+  - name: paint_back_f25                 # traced from back picture region F25: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.025, 0.015], [0.025, 0.015], [0.025, -0.005], [-0.005, -0.015]]
+    side: [[-0.006, 0.018], [0.039, -0.018], [0.014, -0.018], [-0.039, 0.018]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [cranium]
+    material: iron
+    at: [0.003, 1.879, -0.064]
+  - name: paint_back_f26                 # traced from back picture region F26: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.018, 0.013], [0.018, -0.008], [-0.018, -0.013]]
+    side: [[0.014, 0.015], [0.011, -0.015], [-0.014, -0.015], [-0.014, 0.015]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [upper_arm_core_r, elbow_r]
+    material: metal
+    at: [0.545, 1.530, -0.052]
+  - name: paint_back_f27                 # traced from back picture region F27: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.015, 0.015], [0.010, 0.010], [0.015, -0.015], [-0.010, -0.015]]
+    side: [[0.012, 0.018], [0.012, -0.018], [-0.012, -0.018], [-0.012, 0.018]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [pelvis]
+    material: metal
+    at: [-0.094, 1.070, -0.086]
+  - name: paint_back_f28                 # traced from back picture region F28: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.008, 0.023], [0.008, 0.023], [-0.003, -0.023]]
+    side: [[0.024, 0.025], [0.010, -0.025], [-0.024, -0.025], [-0.008, 0.025]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [shin_r]
+    material: iron
+    at: [0.087, 0.426, -0.104]
+  - name: paint_back_f29                 # traced from back picture region F29: dark, the model shows bright here
+    shape: extrude
+    points: [[0.000, 0.020], [0.010, -0.020], [-0.010, -0.005]]
+    side: [[0.010, 0.023], [0.015, -0.023], [-0.009, -0.023], [-0.015, 0.023]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [forearm_r]
+    material: iron
+    at: [0.613, 1.543, -0.051]
+  - name: paint_back_f30                 # traced from back picture region F30: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.013], [0.015, 0.013], [0.015, -0.008], [-0.005, -0.013]]
+    side: [[0.010, 0.015], [0.016, -0.015], [-0.008, -0.015], [-0.016, 0.015]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [palm_r]
+    material: iron
+    at: [0.873, 1.545, -0.047]
+  - name: paint_back_f31                 # traced from back picture region F31: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.018, 0.010], [0.018, 0.010], [0.018, -0.005], [-0.018, -0.010]]
+    side: [[0.025, 0.013], [0.025, 0.005], [0.004, 0.000], [0.002, -0.013], [-0.025, -0.013], [-0.021, 0.013]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [finger_a_r, finger_b_r]
+    material: iron
+    at: [1.079, 1.523, -0.029]
+  - name: paint_back_f32                 # traced from back picture region F32: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.013], [0.015, 0.013], [0.015, -0.003], [-0.010, -0.013]]
+    side: [[0.010, 0.015], [0.016, -0.015], [-0.008, -0.015], [-0.016, 0.015]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [palm_l]
+    material: iron
+    at: [-0.873, 1.545, -0.047]
+  - name: paint_back_f33                 # traced from back picture region F33: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.015], [0.015, -0.015], [-0.015, -0.005]]
+    side: [[0.014, 0.018], [0.011, -0.018], [-0.014, -0.018], [-0.012, 0.018]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [upper_arm_plate_r]
+    material: iron
+    at: [0.491, 1.563, -0.047]
+  - name: paint_back_f34                 # traced from back picture region F34: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.010], [0.015, -0.010], [-0.010, -0.010]]
+    side: [[0.024, 0.013], [0.007, -0.018], [-0.024, -0.018], [-0.001, 0.013]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [thigh_r]
+    material: iron
+    at: [0.125, 0.764, -0.062]
+  - name: paint_back_f35                 # traced from back picture region F35: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.015], [0.010, 0.010], [0.010, -0.015], [-0.010, -0.015]]
+    side: [[0.009, 0.018], [0.015, -0.018], [-0.009, -0.018], [-0.015, 0.018]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [toe_cap_r]
+    material: iron
+    at: [0.232, 0.052, 0.075]
+  - name: paint_back_f36                 # traced from back picture region F36: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.010], [0.020, -0.010], [-0.020, -0.005]]
+    side: [[0.023, 0.013], [0.002, -0.013], [-0.022, -0.013], [-0.023, 0.005], [-0.002, 0.013]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [finger_c_l, finger_d_l]
+    material: iron
+    at: [-1.036, 1.497, 0.013]
+  - name: paint_back_f37                 # traced from back picture region F37: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.005, 0.015], [0.010, 0.015], [0.010, -0.015], [-0.010, -0.010]]
+    side: [[0.009, 0.018], [0.015, -0.018], [-0.009, -0.018], [-0.015, 0.018]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [toe_cap_l]
+    material: iron
+    at: [-0.232, 0.052, 0.075]
+  - name: paint_back_f38                 # traced from back picture region F38: accent, the model shows bright here
+    shape: extrude
+    points: [[0.003, 0.013], [0.003, -0.008], [-0.003, -0.013], [-0.003, 0.008]]
+    side: [[0.015, 0.015], [0.009, -0.015], [-0.015, -0.015], [-0.009, 0.015]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [thigh_r]
+    material: glow_blue
+    at: [0.193, 0.848, -0.092]
+  - name: paint_back_f39                 # traced from back picture region F39: accent, the model shows dark here
+    shape: extrude
+    points: [[-0.010, 0.003], [0.010, 0.003], [0.010, -0.003], [-0.005, -0.003]]
+    side: [[0.012, 0.005], [0.012, -0.005], [-0.012, -0.005], [-0.012, 0.005]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [upper_arm_core_r]
+    material: glow_blue
+    at: [0.440, 1.520, -0.050]
+  - name: paint_back_f40                 # traced from back picture region F40: accent, the model shows dark here
+    shape: extrude
+    points: [[-0.008, 0.003], [0.008, 0.003], [0.008, -0.003], [-0.003, -0.003]]
+    side: [[0.012, 0.005], [0.013, -0.005], [-0.012, -0.005], [-0.013, 0.005]]
+    rotate: [0, 180, 0]
+    op: paint
+    from: [knee_r]
+    material: glow_blue
+    at: [0.132, 0.670, -0.065]
+  # --- paints where the model's class differs from the front picture (structure --trace fix --paint --conform)
+  - name: paint_f1                 # traced from front picture region F1: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.033, 0.013], [0.033, 0.013], [0.033, -0.013], [-0.033, -0.008]]
+    side: [[0.030, 0.127], [0.029, 0.109], [0.021, 0.104], [0.019, 0.033], [0.005, -0.023], [0.005, -0.076], [-0.030, -0.076], [-0.030, -0.013], [-0.014, 0.003], [-0.021, 0.008], [-0.018, 0.038], [-0.026, 0.043], [-0.015, 0.074], [-0.025, 0.079], [-0.011, 0.120], [0.003, 0.127]]
+    op: paint
+    from: [piston_in_r, shin_r, inlay_r11_r, inlay_r61]
+    material: iron
+    at: [0.143, 0.339, 0.037]
+  - name: paint_f2                 # traced from front picture region F2: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.020, 0.051], [0.000, 0.051], [0.020, 0.005], [0.020, -0.051], [-0.005, -0.041]]
+    side: [[0.044, 0.069], [0.041, 0.056], [0.005, 0.051], [0.005, 0.041], [0.010, 0.010], [0.027, 0.005], [0.025, -0.015], [0.046, -0.020], [0.050, -0.053], [-0.017, -0.053], [-0.022, -0.015], [-0.028, -0.010], [-0.028, 0.025], [-0.050, 0.031], [-0.050, 0.046], [-0.031, 0.056], [0.014, 0.061], [0.018, 0.069]]
+    op: paint
+    from: [abdomen, rib_plate_l, plate_r17, plate_r33_l]
+    material: iron
+    at: [-0.099, 1.283, 0.074]
+  - name: paint_f3                 # traced from front picture region F3: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.003, 0.043], [0.018, 0.043], [0.018, 0.013], [0.003, -0.043], [-0.018, -0.043]]
+    side: [[0.026, 0.046], [0.018, 0.003], [0.023, -0.079], [0.016, -0.148], [-0.026, -0.148], [-0.014, -0.048], [-0.022, 0.008], [-0.013, 0.013], [-0.003, 0.046]]
+    op: paint
+    from: [shin_r, inlay_r11_r]
+    material: iron
+    at: [0.076, 0.538, 0.045]
+  - name: paint_f4                 # traced from front picture region F4: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.020, 0.031], [0.025, 0.031], [0.025, -0.031], [-0.025, -0.031]]
+    side: [[0.017, 0.084], [0.010, -0.005], [0.020, -0.010], [0.021, -0.033], [-0.015, -0.033], [-0.021, 0.084]]
+    op: paint
+    from: [ankle_l, inlay_r30_l, inlay_r34, inlay_r50_l, inlay_r58_l]
+    material: metal
+    at: [-0.150, 0.245, 0.027]
+  - name: paint_f5                 # traced from front picture region F5: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.023, 0.025], [0.023, 0.015], [0.008, -0.025], [-0.023, -0.025]]
+    side: [[0.024, 0.053], [0.007, -0.038], [-0.018, -0.038], [-0.024, -0.025], [-0.011, 0.015], [-0.017, 0.020], [-0.013, 0.036], [-0.023, 0.041], [-0.017, 0.053]]
+    op: paint
+    from: [shin_l]
+    material: iron
+    at: [-0.173, 0.337, 0.030]
+  - name: paint_f6                 # traced from front picture region F6: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.008, 0.020], [0.013, 0.020], [0.013, -0.020], [-0.013, -0.020]]
+    side: [[0.029, 0.059], [0.024, -0.020], [0.011, -0.025], [0.010, -0.038], [-0.029, -0.038], [-0.007, -0.010], [-0.017, 0.025], [-0.004, 0.036], [-0.005, 0.059]]
+    op: paint
+    from: [knee_l, knee_disc_out_l]
+    material: metal
+    at: [-0.183, 0.647, 0.031]
+  - name: paint_f7                 # traced from front picture region F7: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.010, 0.013], [0.010, 0.013], [0.010, -0.013], [-0.010, -0.013]]
+    side: [[0.015, 0.046], [0.018, -0.051], [-0.013, -0.051], [-0.018, -0.008], [-0.007, 0.023], [-0.009, 0.046]]
+    op: paint
+    from: [hip_plate_r]
+    material: metal
+    at: [0.186, 1.103, 0.059]
+  - name: paint_f8                 # traced from front picture region F8: dark, the model shows bright here
     shape: extrude
     points: [[-0.010, 0.010], [0.010, 0.010], [0.010, -0.010], [-0.010, -0.010]]
-    depth: 0.03
-    round: 0.004
+    side: [[0.043, 0.013], [0.043, 0.000], [-0.019, -0.015], [-0.019, -0.043], [-0.043, -0.043], [-0.043, -0.015], [-0.010, -0.005], [-0.016, 0.013]]
+    op: paint
+    from: [neck_light, face]
+    material: iron
+    at: [0.013, 1.655, 0.086]
+  - name: paint_f9                 # traced from front picture region F9: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.018, 0.020], [0.018, 0.020], [0.023, -0.020], [-0.023, -0.020]]
+    side: [[0.003, 0.023], [0.030, -0.010], [0.029, -0.023], [0.003, -0.023], [-0.030, 0.023]]
+    op: paint
+    from: [boot_panel_l, boot_light_l]
     material: metal
-    at: [-0.126, 1.616, 0.117]
+    at: [-0.168, 0.143, 0.053]
+  - name: paint_f10                 # traced from front picture region F10: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.018, 0.020], [0.018, 0.020], [0.023, -0.020], [-0.023, -0.020]]
+    side: [[0.003, 0.023], [0.030, -0.010], [0.029, -0.023], [0.003, -0.023], [-0.030, 0.023]]
+    op: paint
+    from: [boot_panel_r, boot_light_r]
+    material: metal
+    at: [0.168, 0.143, 0.053]
+  - name: paint_f11                 # traced from front picture region F11: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.020, 0.015], [0.025, 0.010], [0.025, -0.015], [-0.025, -0.015]]
+    side: [[-0.014, 0.018], [0.043, -0.018], [0.003, -0.018], [-0.043, 0.018]]
+    op: paint
+    from: [cranium, forehead_light]
+    material: iron
+    at: [0.003, 1.884, 0.073]
+  - name: paint_f12                 # traced from front picture region F12: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.010, 0.013], [0.010, 0.013], [0.010, -0.013], [-0.010, -0.013]]
+    side: [[0.015, 0.046], [0.017, -0.025], [-0.011, -0.025], [-0.017, 0.003], [-0.006, 0.028], [-0.009, 0.046]]
+    op: paint
+    from: [hip_plate_l, plate_r45]
+    material: metal
+    at: [-0.186, 1.103, 0.059]
+  - name: paint_f13                 # traced from front picture region F13: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.013], [0.010, 0.013], [0.010, -0.013], [-0.010, -0.013]]
+    side: [[0.000, 0.020], [0.031, 0.013], [0.041, -0.003], [0.044, -0.013], [0.014, -0.018], [0.021, -0.041], [-0.015, -0.041], [-0.028, 0.003], [-0.044, 0.008], [-0.044, 0.020]]
+    op: paint
+    from: [pec_r, shoulder_disc_r, plate_r7_r]
+    material: iron
+    at: [0.176, 1.484, 0.127]
+  - name: paint_f14                 # traced from front picture region F14: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.015, 0.015], [0.015, 0.015], [0.020, -0.015], [-0.020, -0.015]]
+    side: [[0.005, 0.023], [0.004, 0.005], [0.033, -0.018], [0.006, -0.018], [-0.033, 0.023]]
+    op: paint
+    from: [traps]
+    material: metal
+    at: [-0.120, 1.599, 0.058]
+  - name: paint_f15                 # traced from front picture region F15: dark, the model shows bright here
+    shape: extrude
+    points: [[0.008, 0.046], [0.018, 0.031], [-0.018, -0.046]]
+    side: [[0.017, 0.048], [0.024, 0.010], [0.016, -0.048], [-0.024, -0.048], [-0.014, 0.048]]
+    op: paint
+    from: [shin_l, inlay_r11_l]
+    material: iron
+    at: [-0.081, 0.449, 0.043]
+  - name: paint_f16                 # traced from front picture region F16: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.013, 0.018], [0.018, 0.008], [0.018, -0.018], [-0.018, -0.018]]
+    side: [[0.005, 0.020], [0.004, 0.003], [0.033, -0.020], [0.006, -0.020], [-0.033, 0.020]]
+    op: paint
+    from: [traps]
+    material: metal
+    at: [0.122, 1.601, 0.058]
+  - name: paint_f17                 # traced from front picture region F17: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.015, 0.013], [0.015, 0.013], [0.015, -0.013], [-0.015, -0.013]]
+    side: [[0.024, 0.020], [0.024, -0.020], [-0.001, -0.020], [-0.001, -0.008], [-0.022, -0.003], [-0.024, 0.020]]
+    op: paint
+    from: [finger_c_r, finger_d_r]
+    material: metal
+    at: [0.995, 1.520, 0.031]
+  - name: paint_f18                 # traced from front picture region F18: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.028], [0.015, 0.018], [-0.005, -0.028]]
+    side: [[0.025, 0.031], [0.041, -0.003], [0.011, -0.008], [0.018, -0.031], [-0.018, -0.031], [-0.041, 0.031]]
+    op: paint
+    from: [pec_l, plate_r7_l]
+    material: iron
+    at: [-0.171, 1.474, 0.130]
+  - name: paint_f19                 # traced from front picture region F19: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.010, 0.031], [0.015, -0.031], [-0.015, 0.005]]
+    side: [[0.017, 0.033], [0.025, 0.010], [0.018, -0.033], [-0.014, -0.033], [-0.025, 0.000], [-0.011, 0.005], [-0.012, 0.033]]
+    op: paint
+    from: [knee_r, knee_disc_out_r]
+    material: metal
+    at: [0.171, 0.673, 0.038]
+  - name: paint_f20                 # traced from front picture region F20: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.025], [0.013, 0.025], [0.008, -0.025]]
+    side: [[0.024, 0.028], [0.024, -0.020], [0.002, -0.028], [-0.024, -0.028], [-0.017, -0.020], [-0.017, 0.028]]
+    op: paint
+    from: [forearm_l, plate_r16_l]
+    material: iron
+    at: [-0.616, 1.533, 0.059]
+  - name: paint_f21                 # traced from front picture region F21: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.025], [0.013, 0.025], [0.003, -0.025], [-0.013, -0.020]]
+    side: [[0.024, 0.028], [0.024, -0.020], [0.002, -0.028], [-0.024, -0.028], [-0.017, -0.020], [-0.017, 0.028]]
+    op: paint
+    from: [forearm_r, plate_r16_r]
+    material: iron
+    at: [0.616, 1.533, 0.059]
+  - name: paint_f22                 # traced from front picture region F22: dark, the model shows accent here
+    shape: extrude
+    points: [[-0.008, 0.018], [0.018, 0.013], [0.013, -0.018], [-0.018, -0.008]]
+    side: [[0.013, 0.020], [0.013, -0.020], [-0.013, -0.020], [-0.013, 0.020]]
+    op: paint
+    from: [shoulder_ring_r]
+    material: iron
+    at: [0.204, 1.530, 0.104]
+  - name: paint_f23                 # traced from front picture region F23: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.020, 0.020], [0.015, 0.020], [0.020, -0.020]]
+    side: [[0.012, 0.023], [0.017, -0.023], [-0.017, -0.023], [-0.007, -0.005], [-0.014, 0.023]]
+    op: paint
+    from: [palm_l]
+    material: iron
+    at: [-0.873, 1.538, 0.044]
+  - name: paint_f24                 # traced from front picture region F24: dark, the model shows bright here
+    shape: extrude
+    points: [[0.013, 0.020], [0.018, -0.020], [-0.018, -0.020]]
+    side: [[0.038, 0.023], [0.021, -0.023], [-0.038, -0.023], [-0.011, -0.010], [0.013, 0.023]]
+    op: paint
+    from: [deltoid_l, deltoid_plate_l]
+    material: iron
+    at: [-0.270, 1.533, 0.073]
+  - name: paint_f25                 # traced from front picture region F25: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.020, 0.020], [0.020, -0.020], [-0.015, -0.020]]
+    side: [[0.034, 0.023], [0.032, 0.015], [0.041, 0.010], [0.025, 0.005], [0.017, -0.023], [-0.041, -0.023], [-0.015, -0.010], [0.009, 0.023]]
+    op: paint
+    from: [deltoid_r, deltoid_plate_r]
+    material: iron
+    at: [0.267, 1.533, 0.077]
+  - name: paint_f26                 # traced from front picture region F26: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.018, 0.018], [0.013, 0.013], [0.023, -0.018], [-0.023, 0.003]]
+    side: [[0.008, 0.020], [0.008, 0.003], [0.017, -0.008], [0.007, -0.020], [-0.017, -0.020], [-0.017, 0.020]]
+    op: paint
+    from: [shoulder_disc_l, shoulder_ring_l]
+    material: metal
+    at: [-0.193, 1.551, 0.100]
+  - name: paint_f27                 # traced from front picture region F27: dark, the model shows accent here
+    shape: extrude
+    points: [[-0.010, 0.018], [0.015, 0.008], [0.010, -0.018], [-0.015, -0.013]]
+    side: [[0.013, 0.020], [0.013, -0.020], [-0.013, -0.020], [-0.013, 0.020]]
+    op: paint
+    from: [shoulder_ring_l]
+    material: iron
+    at: [-0.206, 1.530, 0.104]
+  - name: paint_f28                 # traced from front picture region F28: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.008, 0.010], [0.028, 0.000], [-0.028, -0.010]]
+    side: [[0.024, 0.013], [0.024, -0.013], [-0.001, -0.013], [-0.002, -0.005], [-0.024, 0.000], [-0.022, 0.013]]
+    op: paint
+    from: [finger_c_l, finger_d_l]
+    material: iron
+    at: [-1.023, 1.502, 0.031]
+  - name: paint_f29                 # traced from front picture region F29: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.018, 0.020], [0.018, -0.020], [-0.008, -0.020]]
+    side: [[0.005, 0.023], [-0.001, 0.005], [0.030, -0.005], [-0.005, -0.015], [-0.006, -0.023], [-0.030, -0.023], [-0.019, 0.023]]
+    op: paint
+    from: [codpiece, plate_r9]
+    material: iron
+    at: [-0.036, 1.034, 0.115]
+  - name: paint_f30                 # traced from front picture region F30: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.003, 0.028], [0.008, 0.028], [0.008, -0.028], [-0.003, -0.028], [-0.003, -0.013], [-0.008, -0.008], [-0.008, 0.018]]
+    side: [[0.030, 0.031], [0.033, -0.003], [0.023, -0.031], [-0.027, -0.031], [-0.016, -0.013], [-0.033, -0.008], [-0.033, 0.018], [-0.016, 0.023], [-0.028, 0.031]]
+    op: paint
+    from: [cranium]
+    material: iron
+    at: [-0.076, 1.795, 0.057]
+  - name: paint_f31                 # traced from front picture region F31: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.008, 0.020], [0.013, 0.020], [0.003, -0.020], [-0.013, -0.020]]
+    side: [[0.017, 0.023], [0.013, -0.023], [-0.017, -0.023], [-0.008, -0.015], [-0.007, 0.023]]
+    op: paint
+    from: [palm_r]
+    material: iron
+    at: [0.870, 1.533, 0.044]
+  - name: paint_f32                 # traced from front picture region F32: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.020], [0.013, -0.020], [-0.008, -0.015]]
+    side: [[0.006, 0.023], [0.020, -0.023], [-0.007, -0.023], [-0.020, 0.023]]
+    op: paint
+    from: [boot_l, ankle_disc_l]
+    material: iron
+    at: [-0.199, 0.214, 0.025]
+  - name: paint_f33                 # traced from front picture region F33: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.013, 0.015], [0.008, 0.015], [0.013, -0.010], [-0.013, -0.015]]
+    side: [[0.017, 0.018], [0.016, -0.018], [-0.011, -0.018], [-0.017, -0.010], [-0.009, 0.018]]
+    op: paint
+    from: [upper_arm_plate_r]
+    material: iron
+    at: [0.494, 1.563, 0.054]
+  - name: paint_f34                 # traced from front picture region F34: bright, the model shows dark here
+    shape: extrude
+    points: [[-0.010, 0.013], [0.015, -0.013], [-0.015, -0.013]]
+    side: [[0.013, 0.015], [0.013, -0.015], [-0.013, -0.015], [-0.011, 0.015]]
+    op: paint
+    from: [inlay_r50_r, inlay_r73]
+    material: metal
+    at: [0.160, 0.227, 0.024]
+  - name: paint_f35                 # traced from front picture region F35: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.015, 0.013], [0.015, 0.013], [0.005, -0.013]]
+    side: [[0.004, 0.015], [0.025, -0.015], [-0.001, -0.015], [-0.025, 0.015]]
+    op: paint
+    from: [pec_r]
+    material: iron
+    at: [0.160, 1.561, 0.072]
+  - name: paint_f36                 # traced from front picture region F36: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.015], [0.010, 0.015], [-0.005, -0.015]]
+    side: [[0.023, 0.018], [0.022, -0.018], [-0.013, -0.018], [-0.023, -0.010], [-0.004, 0.018]]
+    op: paint
+    from: [knee_r, knee_disc_out_r]
+    material: iron
+    at: [0.186, 0.622, 0.027]
+  - name: paint_f37                 # traced from front picture region F37: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.015], [0.010, 0.015], [0.010, -0.015], [-0.010, -0.010]]
+    side: [[0.016, 0.018], [0.015, -0.018], [-0.013, -0.018], [-0.016, 0.018]]
+    op: paint
+    from: [upper_arm_plate_l]
+    material: iron
+    at: [-0.496, 1.563, 0.055]
+  - name: paint_f38                 # traced from front picture region F38: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.005, 0.025], [0.005, 0.025], [0.005, -0.025], [-0.005, -0.025]]
+    side: [[0.020, 0.028], [0.022, -0.028], [-0.011, -0.028], [-0.022, 0.028]]
+    op: paint
+    from: [thigh_r]
+    material: iron
+    at: [0.084, 0.907, 0.095]
+  - name: paint_f39                 # traced from front picture region F39: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.015], [0.010, 0.010], [0.005, -0.015], [-0.010, -0.015]]
+    side: [[0.013, 0.018], [0.013, -0.018], [-0.013, -0.018], [-0.011, 0.018]]
+    op: paint
+    from: [abdomen, plate_r23]
+    material: iron
+    at: [0.053, 1.268, 0.110]
+  - name: paint_f40                 # traced from front picture region F40: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.015], [0.010, 0.010], [0.010, -0.015]]
+    side: [[0.006, 0.018], [0.019, 0.010], [0.020, -0.018], [-0.004, -0.018], [-0.020, 0.018]]
+    op: paint
+    from: [hip_belt_l, plate_r9]
+    material: iron
+    at: [-0.028, 1.151, 0.125]
+  - name: paint_f41                 # traced from front picture region F41: dark, the model shows bright here
+    shape: extrude
+    points: [[-0.010, 0.013], [0.010, 0.013], [0.010, -0.013], [-0.010, -0.013]]
+    side: [[0.010, 0.015], [0.014, -0.015], [-0.010, -0.015], [-0.014, 0.015]]
+    op: paint
+    from: [plate_r87]
+    material: iron
+    at: [0.094, 1.072, 0.108]
+
 checks:
   - grounded
   - connected
@@ -1048,8 +2301,8 @@ checks:
   - relation: {a: back_plate, is: behind, b: chest_core}
   - contrast: {a: shoulder_ring_r, b: shoulder_disc_r, min: 2.0, why: "the blue rings read against the black joints"}
   - readable_at: {px: 48, min_iou: 0.7, keep: [cranium], view: front, why: "the head and the plated body read on a small portrait"}
-  - matches_reference: {index: 0, min_iou: 0.86, max_missing: 0.06, why: "the designer's front concept"}
-  - matches_reference: {index: 1, min_iou: 0.85, max_missing: 0.07, why: "the back concept"}
-  - matches_reference: {index: 2, min_iou: 0.85, max_missing: 0.05, why: "the right side concept: the depth of every band"}
-  - matches_reference: {index: 3, min_iou: 0.85, max_missing: 0.05, why: "the left side concept"}
+  - matches_reference: {index: 0, min_iou: 0.9, max_missing: 0.05, why: "the designer's front concept"}
+  - matches_reference: {index: 1, min_iou: 0.9, max_missing: 0.06, why: "the back concept"}
+  - matches_reference: {index: 2, min_iou: 0.9, max_missing: 0.05, why: "the right side concept: the depth of every band"}
+  - matches_reference: {index: 3, min_iou: 0.9, max_missing: 0.05, why: "the left side concept"}
   - max_parts: 288

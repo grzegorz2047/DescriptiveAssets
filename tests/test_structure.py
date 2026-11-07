@@ -12,6 +12,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from sightline import structure as st
+from sightline.errors import SightlineError
 from sightline.loader import load_asset
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -293,3 +294,51 @@ def test_trace_conform_bends_the_plate_along_the_surface(scratch):
     path = scratch / "panel_conform.yaml"
     path.write_text(path.read_text(encoding="utf-8") + bent["yaml"], encoding="utf-8")
     load_asset(path, ROOT)
+
+
+def test_trace_from_a_side_picture_keeps_front_and_back_apart(scratch):
+    """Right view: the picture's left is the model's front (+z). One plate drawn there lands at +z, with its
+    outline the right way round (a regression: side and back traces were mirrored along the image)."""
+    (scratch / "refs").mkdir(exist_ok=True)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rectangle((30, 20, 229, 219), fill=FRAME + (255,))
+    d.polygon([(40, 30), (120, 30), (120, 150), (40, 90)], fill=PLATE + (255,))  # wide at the top, toward +z
+    img.save(scratch / "refs" / "side.png")
+    text = ("asset: wall_side\nstyle: default\nreference: {image: refs/side.png, view: right, height: 2.0}\n"
+            "parts:\n  - name: frame\n    shape: box\n    size: [0.2, 2.0, 2.0]\n    material: iron\n"
+            "    at: [0, 0, 0]\n    align: bottom\n")
+    (scratch / "wall_side.yaml").write_text(text, encoding="utf-8")
+    asset = load_asset(scratch / "wall_side.yaml", ROOT)
+    rep = st.compare_structure(asset, res=256)
+    bright = [r["id"] for r in rep["regions"] if r["class"] == "bright" and r["share"] > 0.05]
+    result = st.trace_regions(asset, bright, res=256, depth=0.03)
+    (part,) = result["parts"]
+    assert part["rotate"] == [0, 90.0, 0] and part["mirror"]
+    assert part["at"][2] == pytest.approx(0.495, abs=0.03)  # the plate's middle, 0.1..0.9 m in front
+    pts = np.array(part["points"])  # local x = camera right = -z: the long edge is at the back (+x local)
+    top = pts[pts[:, 1] > 0.5]
+    assert top[:, 0].min() < -0.3 and top[:, 0].max() > 0.3
+    low = pts[pts[:, 1] < -0.4]
+    assert low[:, 0].min() > 0.2  # only the back part of the plate reaches down
+
+
+def test_trace_fix_paints_only_where_the_model_differs(scratch):
+    """--trace fix --paint: iron plates where the picture shows bright ones become painted metal; the
+    outline and the size stay, and the classes then agree."""
+    asset = _write_asset(scratch, "panel_fix", plates_material="iron")
+    before = st.compare_structure(asset, res=256)
+    result = st.trace_regions(asset, ["fix"], res=256, paint=True, conform=True)
+    parts = result["parts"]
+    assert parts and all(p["op"] == "paint" and not p["mirror"] for p in parts)
+    assert {p["material"] for p in parts if p["region"] in ("F1", "F2")} == {"metal"}
+    assert any("plate_l" in p["from"] or "plate_r" in p["from"] for p in parts)
+    assert all(p["name"].startswith("paint_f") for p in parts)
+    path = scratch / "panel_fix.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + result["yaml"], encoding="utf-8")
+    fixed = load_asset(path, ROOT)
+    after = st.compare_structure(fixed, res=256)
+    assert after["iou"] == before["iou"]
+    assert before["class_agreement_areas"] < 0.75 < 0.95 < after["class_agreement_areas"]
+    with pytest.raises(SightlineError, match="no region R999"):
+        st.trace_regions(asset, ["R999"], res=256)

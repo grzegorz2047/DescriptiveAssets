@@ -907,18 +907,22 @@ def _format_unknowns(unknowns: list[dict]) -> list[str]:
 # ----------------------------------------------------------------------------- shading
 
 
-def shade_lambert(asset, buffers: ViewBuffers, background=None) -> np.ndarray:
+def shade_lambert(asset, buffers: ViewBuffers, background=None, cam: Camera | None = None) -> np.ndarray:
     """Flat Lambert image (H, W, 3) float 0..1: material base colour x (ambient + (1 - ambient) * n . -light).
 
-    No patterns, shadows or gamma; pixels without a hit get `background` (default: the style's).
+    No patterns, shadows or gamma; pixels without a hit get `background` (default: the style's). With
+    `cam`, the light turns with that camera (`Camera.follow_light`): a back or side reference is lit
+    like the front one, as on a concept turnaround sheet.
     """
     style = asset.style
-    to_light = -np.asarray(style.light_dir, dtype=np.float32)
+    light = cam.follow_light(style.light_dir) if cam is not None else np.asarray(style.light_dir)
+    to_light = -np.asarray(light, dtype=np.float32)
     lam = np.clip(buffers.normal @ to_light, 0.0, 1.0)
     shade = style.ambient + (1.0 - style.ambient) * lam
     base = np.zeros(buffers.hit.shape + (3,), dtype=np.float32)
-    for pi in np.unique(buffers.part[buffers.hit]):
-        base[buffers.part == pi] = style.material(asset.parts[pi].material).color
+    surf = asset.scene().surface_ids(buffers)  # paints (op: paint) colour parts of the solids
+    for pi in np.unique(surf[buffers.hit]):
+        base[surf == pi] = style.material(asset.parts[pi].material).color
     out = base * shade[..., None]
     out[~buffers.hit] = style.background if background is None else background
     return out
@@ -1043,7 +1047,7 @@ class _Match:
     ref_rgb: np.ndarray  # (Hg, Wg, 3) 0..1 aligned reference colours (outside the picture: background)
     ref: np.ndarray  # (Hg, Wg) bool
     model: np.ndarray  # (Hg, Wg) bool
-    part: np.ndarray  # (Hg, Wg) int32
+    part: np.ndarray  # (Hg, Wg) int32: who colours each pixel, the solid or a paint over it (op: paint)
     lambert: np.ndarray  # (Hg, Wg, 3) 0..1
 
 
@@ -1157,12 +1161,15 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
     lam[:] = asset.style.background
     mc[pt:pt + H, pl:pl + W] = mcov
     part[pt:pt + H, pl:pl + W] = vb.part
-    lam[pt:pt + H, pl:pl + W] = shade_lambert(asset, vb)
+    surf = np.full((Hg, Wg), -1, dtype=np.int32)  # the part that colours each pixel (a paint, or the solid)
+    surf[pt:pt + H, pl:pl + W] = scene.surface_ids(vb)
+    lam[pt:pt + H, pl:pl + W] = shade_lambert(asset, vb, cam=cam)
     model = mc >= 0.5
     if not model.any():
         model = mc > 0
     if (model & (part < 0)).any():  # coverage >= 0.5 with a missed center sample: borrow the nearest label
         part = np.where(model, _nearest_labels(part, model), part)
+        surf = np.where(model, _nearest_labels(surf, model), surf)
 
     # Reference coverage on the grid, with room for the horizontal shift search.
     sat = _sat(ref.mask.astype(np.float32))
@@ -1204,6 +1211,7 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
     crop = (slice(cy0, cy1), slice(cx0, cx1))
     refm, model, part, lam, rgb, cover, mc = (refm[crop], model[crop], part[crop], lam[crop], rgb[crop], cover[crop],
                                               mc[crop])
+    surf = surf[crop]
     pl -= cx0
     pt -= cy0
     # Grid edge coordinate -> asset frame meters (h along camera.right, v along camera.up).
@@ -1229,7 +1237,7 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
     align = {"bottom": align_on, "base": round(c_v + (H / 2.0 - mbot) * mpp, 2), "below_ground": below}
     report = _match_report(asset, index, spec, view, ref, refm, model, mc, part, lam, rgb, cover, mpp, h_of, v_of, hax,
                            vax, h_name, mode, k, ratio, shift, res, sizes, align)
-    return _Match(report, rgb, refm, model, part, lam)
+    return _Match(report, rgb, refm, model, surf, lam)
 
 
 def _soft_fit(cover: np.ndarray, mc: np.ndarray) -> tuple[float, float, float]:
@@ -1583,7 +1591,7 @@ def _model_panel(asset, view: str, res: int, lam: np.ndarray, part: np.ndarray) 
     """render.py's view if available, else the flat Lambert image with part outlines."""
     try:
         render = importlib.import_module(f"{__package__}.render")  # optional, lazy
-        img = render.render_views(asset, views=[view], res=res, scale_figure=False)[view]
+        img = render.render_views(asset, views=[view], res=res, scale_figure=False, light="view")[view]
         return img.convert("RGB"), "render.py"
     except (ImportError, AttributeError, TypeError, KeyError, SightlineError):
         pass

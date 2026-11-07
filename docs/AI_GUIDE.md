@@ -148,6 +148,20 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      move when the model changes: pick regions by class and place. The robot went from side IoU
      0.76 / 0.77 to 0.89 / 0.90 and back classes 76% -> 83% this way, the front staying at 0.90 / 93%
      (`out/robot/views4_r20.png`: concept and every round in four views).
+   - Shapes first, colours last. Fix the outline in every view before the colours: in each `match`
+     overlay the errors thicker than a pixel are real (a boot instep 4 cm too high, plates standing
+     off a slimming shin, collar plates 8 cm in front of the neck); a 1 px fringe is the grid. Read
+     the side outline per height, change the part, and run all views again: a fix for one view can
+     open a gap in another (a thinner thigh core made the front lose the inner thigh at the top until
+     the core was tilted).
+   - A part has one material, but the same volume is often silver from the back and dark frame from
+     the front. Do not add plates for that: `sightline structure <asset> --index I --trace fix --paint
+     --conform` prints `op: paint` parts for only the patches whose class differs from picture I. They
+     colour the surface under their outline and change no outline, so run it for each reference in
+     turn (sides, back, front), pasting each result before the next. The robot's area classes went
+     from 93 / 83 / 76 / 76% (front, back, right, left) to 96 / 98 / 94 / 94% this way.
+   - Look at back and side renders with `sightline render <asset> --light view`: with the style's
+     fixed light a back view shows ambient light only and every material looks black.
    - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
      into `refs/` (save as RGBA PNG), or the background turns black.
    - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and

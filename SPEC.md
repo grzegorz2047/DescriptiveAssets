@@ -252,6 +252,11 @@ Applied in this order after placement of the base part: repeat, then mirror.
 - `op: cut` — the part is subtracted, never rendered. `from: [names] | all` (default: the `on`
   target; error if neither). A cut applies to every listed solid part: `d = max(d_part, −d_cut)`.
   `all` = all earlier solid parts.
+- `op: paint` — no geometry: where the surface of a part in `from` (default: the `on` target, else
+  all earlier solids) lies inside the paint's shape (`d_paint <= 0` at the hit point), it is coloured
+  with the paint's `material`; the last paint in file order wins. Paints never count as solids
+  (bounds, contacts, voxels, silhouettes); `blend` is an error, `material` is required. At most
+  256 paints, counted apart from the 256 solids and cuts.
 - `tags: [...]` per part (free text, e.g. `door`, `walkable`). The tag `hidden` says the part (or cut)
   is expected out of sight (an interior or underside part): inspect gives it no low-visibility or
   "vanishes at 32 px" warning.
@@ -303,8 +308,8 @@ class Part:
     matrix: np.ndarray           # (3,3) orthogonal local->world (det may be -1)
     position: np.ndarray         # (3,) world position of the local origin
     material: str | None         # None for cuts
-    op: str = "union"            # "union" | "cut"
-    cut_from: list[str] = ...    # names of solid parts this cut applies to
+    op: str = "union"            # "union" | "cut" | "paint"
+    cut_from: list[str] = ...    # names of solid parts this cut (or paint) applies to
     blend: float = 0.0
     blend_with: str | None = None
     attached_to: str | None = None   # target part name from `on`
@@ -363,13 +368,22 @@ class Asset:
 
 Implementation notes (additive API, all in use by other modules):
 
-- `Part` also has `to_world(local_pts)`, `sdf3(p3)` (on (3, N) float32 points) and `is_solid`;
+- `Part` also has `to_world(local_pts)`, `sdf3(p3)` (on (3, N) float32 points), `is_solid`
+  (op union), `is_cut` and `is_paint`;
   `world_aabb()` is the exact SDF AABB of the shape, not its rotated bbox. `Style.path` is the file
   it came from; `Asset.root` is the project root and `Asset.part_index(name)` the index.
 - `Scene(parts, solids=None)` has `cutters`, `aabb(i)`, `part_dist3(i, p3, cull=None)` and
   `group_dist3(g, p3, cull=None, need_part=False)`. `Scene.only(indices)` keeps the full `parts`
   list with the asset's indices and only restricts the active solids and groups, so part ids in
-  buffers from a sub-scene index `asset.parts` directly.
+  buffers from a sub-scene index `asset.parts` directly. `Scene.paints` lists (paint index, target
+  solid indices) in file order; `paint_ids(points, part_ids)` gives the part that colours each hit
+  point (the last paint holding it that targets the solid hit there, else that solid) and
+  `surface_ids(buffers)` does it for a marched view. Every colour-by-part path uses it: the renderer
+  (paint borders draw like part borders), `shade_lambert`, `match` (`_Match.part`; silhouette regions
+  still name solids), `structure`, the report's colour shares and the export (`tri_part` /
+  `vertex_part`, so one glTF primitive per material). `Camera.follow_light(direction)` turns a light
+  direction with the camera: components along x, y, z become components along the camera's right,
+  up and toward-viewer axes (the front view keeps it).
 - `make_part` takes keyword-only `source=` and `tags=`. Part, Style, Group, Asset, ViewBuffers and
   VoxelGrid are `dataclass(eq=False)` (identity equality; the generated `__eq__` fails on numpy).
 - `loader.load_asset_text(text, path, root)` loads YAML text as if it were the file at `path` (old
@@ -613,10 +627,10 @@ def render_views(asset, views=None, res=None, scale_figure=True, outline=True, *
 def render_part_map(asset, view="front", res=None, *, labels=True, outline=True, caption=True,
                     upscale=None) -> PIL.Image   # flat color per part + name labels
 def render_sprite(asset, view="iso", mpp=None) -> tuple[PIL.Image (RGBA), (col, row)]  # for levels
-def write_renders(asset, out_dir, views=None, res=None, *, scale_figure=True) -> dict[str, Path]
+def write_renders(asset, out_dir, views=None, res=None, *, scale_figure=True, ground=None, light="world") -> dict[str, Path]
 def render_raw(asset, views=None, res=None, *, mpp=None, scale_figure=True, outline=True,
-               ground=None, shadows=None) -> dict[str, ViewRender]   # raw buffers for inspect/reference
-def render_view(scene, style, cam, ground=None, outline=True, shadows=None, ao_step=None) -> ViewRender
+               ground=None, shadows=None, light="world") -> dict[str, ViewRender]   # raw buffers for inspect/reference
+def render_view(scene, style, cam, ground=None, outline=True, shadows=None, ao_step=None, light="world") -> ViewRender
 def surface_color(material, local_pts, local_normals, mpp) -> (N, 3)   # unlit pattern colors (export bakes with it)
 def material_for(style, name) -> Material                               # 'helper' always exists
 def sheet_many(assets, out_path, res=None, view="iso", *, root=None) -> Path
@@ -905,7 +919,7 @@ Implementation notes (levels):
 
 ```
 sightline new <asset> [--style S] [--brief TEXT] [--force]   # template; the brief's sentences become TODO checks
-sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human] [--no-ground]
+sightline render <asset> [--views a,b] [--res N] [--out DIR] [--no-human] [--no-ground] [--light world|view]
 sightline inspect <asset> [--json] [--res N] [--compare A[,B]]
 sightline check [<asset>...] [--json]                    # no args: all assets; exit 1 on FAIL, 2 on error
 sightline diff <asset> [--against REV|path]              # default: git HEAD version of the file
@@ -914,7 +928,7 @@ sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-ce
                  [--quality full|high|medium|low] [--max-tris N] [--out PATH]
 sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit|flat] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
-sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--conform] [--out DIR] [--json]
+sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS|disagree|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
 sightline styles [name]                                   # styles, materials, palettes
@@ -1139,7 +1153,7 @@ azimuth a and −a give mirror images of symmetric objects).
   `part_boundaries_on_borders` (2 px); `edges_on_part_boundaries` / `part_boundaries_on_edges` against
   every edge pixel (DETAIL). Picture classes from `even_lighting` (mirror-averaged colours when the
   silhouette IoU >= 0.9; accents from the original); model classes from unlit material colours.
-- `trace_regions(asset, ids, index=0, res=512, depth=0.03, prefix="plate", max_relief=None, conform=False) -> {yaml, parts, report, skipped}`:
+- `trace_regions(asset, ids, index=0, res=512, depth=0.03, prefix=None, max_relief=None, conform=False, paint=False) -> {yaml, parts, report, skipped}`:
   `extrude` parts from region outlines (Moore tracing of the smoothed region, Douglas-Peucker to <= 14
   corners; regions under `TRACE_MIN_SMOOTH_PX` unsmoothed, a pixel box when the outline degenerates),
   placed on the model's surface (75th/25th percentile of the surface height toward the camera for
@@ -1150,7 +1164,14 @@ azimuth a and −a give mirror images of symmetric objects).
   (+ depth − sink) and whose back edge is `depth` behind it. `max_relief` (m, flat plates only) skips
   regions whose model surface varies more than that in height (5th..95th percentile): a flat inlay
   would stand off a curved or sloped surface there (`skipped` lists them). Region ids are not stable
-  across model edits (the picture is resampled on the model-aligned grid).
+  across model edits (the picture is resampled on the model-aligned grid). Outline points are along
+  the camera's right axis (the report's `x` ranges are asset axes: in a side view that is z, in the
+  back view x, both reversed against the camera's right). `ids` may hold `"disagree"` (regions whose
+  verdict is not ok) and `"fix"` (`_fix_items`: connected patches of class mismatch inside both
+  outlines, opened by `FIX_OPEN` px, at least `FIX_MIN_PX` (lights `ACCENT_MIN_PX`), ids F1.. by size,
+  never mirrored). `paint`: `op: paint` parts (prefix `paint`) whose slab spans the region's visible
+  surface heights +- `PAINT_MARGIN` (row by row with `conform`), `from:` the solids under at least
+  `PAINT_FROM_MIN` of the region; parts carry `op` and `from`.
 - `extrude` with `side`: SDF `_extrude(d_front + r, d_side + r) - r` with d_front the polygon distance
   in XY and d_side in ZY (exact outside the shared edges, a bound elsewhere); local frame: x centred on
   `points`, z on `side`, y on the shared heights; `depth` = the side outline's depth; AABB from the

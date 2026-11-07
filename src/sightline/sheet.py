@@ -36,7 +36,7 @@ def asset_summary(asset) -> dict:
     return {
         "width": w, "height": h, "depth": d,
         "parts": len(solids),
-        "cuts": sum(1 for p in asset.parts if not p.is_solid),
+        "cuts": sum(1 for p in asset.parts if p.is_cut),
         "materials": _mat_count(asset, scene),
     }
 

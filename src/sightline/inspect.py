@@ -675,6 +675,16 @@ def _cut_visibility(scene, c, targets, views, cams, bufs, rays, removed: float |
     return out
 
 
+def _paint_visibility(scene, i: int, cam, buf) -> float:
+    """Share of a paint's surface on its target parts that a view shows (the rest is hidden by other parts)."""
+    targets = next(t for ci, t in scene.paints if ci == i) if any(ci == i for ci, _ in scene.paints) else []
+    if len(targets) == 0:
+        return 0.0
+    own = scene.only([int(j) for j in targets])
+    alone = int((own.surface_ids(march(own, cam)) == i).sum())
+    return int((scene.surface_ids(buf) == i).sum()) / alone if alone else 0.0
+
+
 def visible_fractions(asset: Asset, names, views, res: int = 128) -> dict[str, dict[str, float]]:
     """Visible fraction per part name (solid or cut) and view, rendered at `res` (for checks on views
     the report does not hold)."""
@@ -686,6 +696,9 @@ def visible_fractions(asset: Asset, names, views, res: int = 128) -> dict[str, d
     out = {}
     for name in names:
         i = asset.part_index(name)
+        if scene.parts[i].is_paint:
+            out[name] = {v: _r(_paint_visibility(scene, i, cams[v], bufs[v])) for v in views}
+            continue
         if scene.parts[i].is_solid:
             vis = _solid_visibility(scene, [i], views, cams, bufs, rays)[i]
         else:
@@ -755,10 +768,11 @@ def _lit_colors(asset: Asset, scene: Scene, solids, buf: ViewBuffers) -> tuple[d
     mean = {i: sums[i] / count[i] for i in solids if count[i]}
     total = int(count.sum())
     shares: dict[str, float] = {}
-    for i in solids:
-        if count[i]:
-            mat = scene.parts[i].material
-            shares[mat] = shares.get(mat, 0.0) + count[i] / total
+    sid = scene.surface_ids(buf)[buf.hit] if scene.paints else pidx  # paints colour parts of solids
+    scount = np.bincount(sid, minlength=n_parts)
+    for i in np.flatnonzero(scount):
+        mat = scene.parts[int(i)].material
+        shares[mat] = shares.get(mat, 0.0) + scount[i] / total
     ordered = dict(sorted(shares.items(), key=lambda kv: (-kv[1], kv[0])))
     return mean, ordered
 
@@ -970,7 +984,7 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
     res = int(res)
     scene, solids = measured_scene(asset)
     parts = scene.parts
-    cuts = [i for i, p in enumerate(parts) if not p.is_solid and not p.helper]
+    cuts = [i for i, p in enumerate(parts) if p.is_cut and not p.helper]
     grid = occupancy(scene, max_cells=max_cells)
     cell = grid.cell
     tol = max(0.02, cell / 2)
@@ -1076,6 +1090,7 @@ def inspect_asset(asset: Asset, res: int = 128, views=REPORT_VIEWS, max_cells: i
         "brief": " ".join((asset.brief or "").split()),
         "part_count": len(solids),
         "cut_count": len(cuts),
+        "paint_count": sum(1 for p in parts if p.is_paint and not p.helper),
         "pieces": len(comps),
         "voxel_cell": _r(cell, 4),
         "render_mpp": _r(cams[march_views[0]].mpp, 4),
@@ -1311,7 +1326,8 @@ def format_report(report: dict) -> str:
         head("BRIEF", lines[0])
         out += [_INDENT + line for line in lines[1:]]
     pieces = r.get("pieces", 1)
-    head("COUNTS", f"{r['part_count']} solids  {r['cut_count']} cuts  {pieces} piece{'s' if pieces != 1 else ''}  "
+    paints = f"{r['paint_count']} paints  " if r.get("paint_count") else ""
+    head("COUNTS", f"{r['part_count']} solids  {r['cut_count']} cuts  {paints}{pieces} piece{'s' if pieces != 1 else ''}  "
          f"voxel cell {r['voxel_cell']:.3f} m  render {r['render_mpp']:.3f} m/px")
     s = r["size"]
     head("SIZE", f"width {_m(s['width'])} m  height {_m(s['height'])} m  depth {_m(s['depth'])} m  "

@@ -155,6 +155,15 @@ wygięta do obojczyka). `--trace ... --conform` obrysowuje płyty także z tyłu
 ciała. Robot doszedł tak z boku od IoU 0,76 do 0,89–0,90, a przód został na 0,90
 (`out/robot/views4_r20.png` pokazuje koncept i każdą rundę w czterech widokach).
 
+**Malowanie.** Ta sama bryła bywa z tyłu srebrna, a z przodu ciemna. Część z `op: paint` nie dodaje
+bryły: powierzchnia innych części w jej obrysie dostaje jej materiał (strefa koloru, naklejka, linia
+podziału). Obrys i wymiary się nie zmieniają, a eksport do .glb dzieli siatkę na materiały.
+`sightline structure robot --index I --trace fix --paint --conform` sam maluje tylko te miejsca,
+gdzie kolor modelu różni się od obrazka I. Robot doszedł tak do 94–98% zgodności materiałów we
+wszystkich czterech widokach, a obrys po poprawkach kształtu do IoU 0,92–0,94
+(`out/robot/views4_r21.png`). `sightline render robot --light view` oświetla tył i boki tak jak
+przód, jak na arkuszu z konceptem.
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z
