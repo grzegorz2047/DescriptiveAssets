@@ -940,9 +940,9 @@ sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-ce
                  [--quality full|high|medium|low] [--max-tris N] [--out PATH]
 sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit|flat] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
-sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--outline-only]
+sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--holdout I,J] [--outline-only]
               [--write | --out PATH] [--no-check] [--force] [--json]   # exit 1 when a check newly fails
-sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--write | --out PATH] [--no-check] [--force] [--json]
+sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--holdout I,J] [--write | --out PATH] [--no-check] [--force] [--json]
 sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS|disagree|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
@@ -1040,6 +1040,15 @@ model, in the same units and grid formats, so the agent compares text with text.
    `unknowns` (from the reference analysis).
 4. Images: `out/<asset>/match_<i>.png` = reference | model render | overlay (both = grey,
    model-only = red, reference-only = blue) | part map over the reference, with captions.
+
+`outline` in the match report: `outline_agreement(R, M, mpp, tol_px=OUTLINE_TOL_PX=1)` on the binary
+grid masks: contour = mask minus its 3x3 erosion; `picture` = share of the picture's contour pixels within
+`tol_px` 3x3 dilations of the model's contour (recall), `model` = the reverse (precision), plus
+`tolerance_px` and `tolerance_m`.
+
+Held-out references (`fit_asset(..., holdout=...)`, `carve_asset(..., holdout=...)`, `check_holdout`):
+`_State.holdout` indices are rendered and reported (`holdout` per view row and in the report) but left
+out of the mean, the floor, `attribute` and, for carve, of every `_Plane`; at least one reference stays.
 
 `match_asset(..., ceiling=True)` adds `ceiling`: `picture_agreement(asset, index, mpp)` when the
 asset has a reference from the opposite side (`opposite_view`: front <-> back, left <-> right,
@@ -1272,9 +1281,14 @@ azimuth a and −a give mirror images of symmetric objects).
   the picture classes. A z plane of a symmetric asset works on its x <= 0 half and writes `mirror: x`.
 - Pieces (`_pieces`): connected components of a mask with at least `MIN_PIECE_PX` = 6 camera px of
   weight; a component enclosing a hole of `MIN_HOLE_UP_PX` or more, or whose outline needs more than
-  `MAX_POINTS` = 64 corners (the extrude limit) at `TRACE_EPS` = 1.2 quarter px, is halved along its longer side (up to
-  `MAX_SPLIT` = 8 times). Cuts: the frame (union or model, grown 2 px) minus the union, weighted by
-  the model's share. Fills: intersection and no model (< 0.5), weighted by area.
+  `MAX_POINTS` = 64 corners (the extrude limit) at `TRACE_EPS` = 1.2 quarter px, is halved along its
+  longer side (up to `MAX_SPLIT` = 8 times); the halves overlap by `SPLIT_OVERLAP` = 4 quarter px and a
+  symmetric plane's -x region reaches one camera px past x = 0 (cuts that only touched would leave a
+  zero-thickness sheet on the shared face). Contours: Moore outline, circular moving average over
+  `SMOOTH_WINDOW` = 4 points each side (pixel steps would extrude into ledges that shade as stripes),
+  Douglas-Peucker, corners mapped to world exactly with `Camera.pixel_to_world` at quarter-pixel
+  positions. Cuts: the frame (union or model, grown 2 px) minus the union, weighted by the model's
+  share. Fills: intersection and no model (< 0.5), weighted by area.
 - Entries: cut = extrude, `op: cut`, depth = the model's extent along the direction + 2 `DEPTH_MARGIN`
   (z prisms at the model's z centre; x prisms `rotate: [0, 90, 0]`, outline u = -z). Fill = extrude
   with `points` and `side` (the other plane's intersection between the piece's heights, largest

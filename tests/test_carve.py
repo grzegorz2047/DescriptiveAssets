@@ -83,7 +83,8 @@ def test_carve_fills_a_block_narrower_than_its_picture(scratch):
 
 
 def test_pieces_are_split_until_they_enclose_nothing():
-    """An outside region that surrounds the outline (a ring) comes back as hole-free pieces covering it."""
+    """An outside region that surrounds the outline (a ring) comes back as hole-free pieces covering it; the
+    halves overlap along the split (two cuts that only touched would leave a zero-thickness sheet there)."""
     H = W = 64
     rows, cols = np.mgrid[0:H, 0:W]
 
@@ -96,11 +97,13 @@ def test_pieces_are_split_until_they_enclose_nothing():
     pieces = C._pieces(Plane, ring, ring.astype(np.float32), 1.0)
     assert len(pieces) >= 2
     union = np.zeros_like(ring)
+    overlap = 0
     for comp, pts, w in pieces:
         assert not C._has_hole(comp) and len(pts) <= C.MAX_POINTS
-        assert not (union & comp).any()
+        overlap += int((union & comp).sum())
         union |= comp
     assert np.array_equal(union, ring)
+    assert overlap > 0  # the split seams are covered twice
 
 
 def test_carve_rejects_assets_it_cannot_carve(scratch):
@@ -127,3 +130,18 @@ def test_cli_carve_writes_a_copy(scratch):
     carved = load_asset(out, ROOT)
     assert carved.name == "wide_carved" and any(p.is_cut for p in carved.parts)
     assert "carve: start" in proc.stderr
+
+
+def test_carve_holdout_back_picture_shapes_nothing_but_improves(scratch):
+    path = _asset(scratch, "wide_held", 1.1)
+    text = path.read_text(encoding="utf-8").replace(
+        "  - {image: front.png, view: front, height: 1.0}",
+        "  - {image: front.png, view: front, height: 1.0}\n  - {image: back.png, view: back, height: 1.0}")
+    path.write_text(text, encoding="utf-8")
+    shutil.copy(scratch / "front.png", scratch / "back.png")
+    rep = C.carve_asset(path, ROOT, res=128, checks=False, holdout=[1])
+    front, back = rep["views"]
+    assert back["holdout"] and rep["holdout"] == [1] and rep["kept"]
+    assert back["iou_after"] > back["iou_before"] + 0.03  # cut to the front picture, the back follows
+    with pytest.raises(SightlineError, match="every reference is held out"):
+        C.carve_asset(_asset(scratch, "only_front", 1.1), ROOT, res=128, checks=False, holdout=[0])

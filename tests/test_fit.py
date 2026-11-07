@@ -180,3 +180,30 @@ def test_cli_fit_writes_a_copy_and_runs_the_checks(scratch):
     fitted = load_asset(out, ROOT)
     assert fitted.name == "block_fitted" and fitted.part("body").params["size"][0] > 0.97
     assert "fit: round 1" in proc.stderr
+
+
+def test_outline_agreement_counts_contour_pixels_within_a_pixel():
+    a = np.zeros((40, 40), dtype=bool)
+    a[10:30, 10:30] = True
+    same = R.outline_agreement(a, a, 0.005)
+    assert same["picture"] == 1.0 and same["model"] == 1.0 and same["tolerance_m"] == 0.005
+    shifted = np.zeros_like(a)
+    shifted[10:30, 13:33] = True  # 3 px to the right: only the top and bottom edges still meet
+    off = R.outline_agreement(a, shifted, 0.005)
+    assert 0.3 < off["picture"] < 0.8 and 0.3 < off["model"] < 0.8
+
+
+def test_holdout_views_are_measured_but_never_fitted_to(scratch):
+    path = _asset(scratch, "held", extra_ref="\n  - {image: back.png, view: back, height: 1.0}")
+    _picture(scratch / "back.png")
+    rep = F.fit_asset(path, ROOT, res=128, steps=(0.008,), max_move=0.05, checks=False, holdout=[1])
+    front, back = rep["views"]
+    assert rep["holdout"] == [1] and back["holdout"] and not front["holdout"]
+    assert front["iou_after"] > front["iou_before"] + 0.02
+    assert back["iou_after"] > back["iou_before"] + 0.02  # the same block from behind: fitting the front generalises
+    assert "(held out: measured, not fitted to)" in F.format_fit(rep)
+    asset = load_asset(path, ROOT)
+    with pytest.raises(SightlineError, match="no reference 5 to hold out"):
+        F.check_holdout(asset, [5])
+    with pytest.raises(SightlineError, match="every reference is held out"):
+        F.check_holdout(asset, [0, 1])

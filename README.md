@@ -187,6 +187,13 @@ i podziały zostały bez zmian (`out/robot/views4_r23.png`). Kosztem są dłużs
 (ok. 3,5 minuty zamiast 2). Robi to polecenie `sightline carve <asset> --out ...` dla każdego zasobu
 z obrazkami z przodu, z tyłu lub z boku.
 
+**Sprzeczne rysunki.** Oba boki robota zgadzają się ze sobą tylko na 0,91 (linia `CEILING`), więc
+jeden model nie dopasuje się do obu. Test z pominiętym zdjęciem (`--holdout`) to potwierdził:
+rzeźbienie do prawego boku podniosło prawy do 0,954, a lewy spadło do 0,923. Projektant pozwolił
+pominąć jeden bok, więc robot ma teraz trzy obrazki (przód, tył, lewy) i obrys 0,949/0,951/0,954
+(`out/robot/views4_r26.png`). Obrysy cięć są wygładzane przed uproszczeniem, bo każdy schodek piksela
+przeciągnięty przez całe ciało rysował się jako pasek na udzie.
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z

@@ -224,10 +224,16 @@ class _State:
     evals: int = 0
     log: object = None  # progress callback (a line every PROGRESS_EVERY trials)
     floor: list | None = None  # per view: the lowest score allowed (start - FLOOR_TOL) when scoring classes too
+    holdout: frozenset = frozenset()  # reference indices held out: measured, never scored, never steering
+
+    def active(self, scores=None) -> list:
+        """The scores of the views that steer (not held out)."""
+        scores = self.scores if scores is None else scores
+        return [s for v, s in zip(self.views, scores) if v.index not in self.holdout]
 
     @property
     def mean(self) -> float:
-        return float(np.mean([s[0] for s in self.scores]))
+        return float(np.mean([s[0] for s in self.active()]))
 
     @property
     def ious(self) -> list:
@@ -405,11 +411,12 @@ def _accept(state: _State, trial: _Trial) -> None:
 def _better(state: _State, trial: _Trial | None) -> bool:
     if trial is None:
         return False
-    if float(np.mean([s[0] for s in trial.scores])) <= state.mean + MIN_GAIN:
+    new = state.active(trial.scores)
+    if float(np.mean([s[0] for s in new])) <= state.mean + MIN_GAIN:
         return False
     if state.floor is not None:  # three noisy shares: views may trade, but none ends below its start
-        return all(n[0] >= f for n, f in zip(trial.scores, state.floor))
-    return all(n[0] >= o[0] - VIEW_TOL for n, o in zip(trial.scores, state.scores))
+        return all(n[0] >= f for n, f in zip(new, state.active(state.floor)))
+    return all(n[0] >= o[0] - VIEW_TOL for n, o in zip(new, state.active()))
 
 
 def attribute(state: _State) -> dict[int, float]:
@@ -419,6 +426,8 @@ def attribute(state: _State) -> dict[int, float]:
     parts = state.asset.scene().parts
     entry_of = np.array([(_entry_index(p) if _entry_index(p) is not None else -1) for p in parts] + [-1])
     for v in state.views:
+        if v.index in state.holdout:  # a held-out picture never chooses what moves
+            continue
         diff = v.cover - v.model
         extra = diff <= -ERR_MIN
         miss = diff >= ERR_MIN
@@ -500,7 +509,7 @@ def _fit_number(state: _State, k: int, prm: Param, step: float) -> int:
             trial = _trial(state, k, new)
             if not _better(state, trial):
                 break
-            state.gain[k] += float(np.mean([s[0] for s in trial.scores])) - state.mean
+            state.gain[k] += float(np.mean([s[0] for s in state.active(trial.scores)])) - state.mean
             _accept(state, trial)
             if scale is not None:
                 state.scale[(k, prm.key)] = scale
@@ -582,13 +591,15 @@ def edit_yaml(text: str, edits: dict[tuple, object]) -> str:
 
 
 def fit_asset(path, root=None, *, res: int = 512, steps=STEPS, parts=None, max_parts: int = MAX_PARTS,
-              max_move: float | None = None, checks: bool = True, inner: bool = True, log=None) -> dict:
+              max_move: float | None = None, checks: bool = True, inner: bool = True, holdout=(), log=None) -> dict:
     """Fit the asset file at `path` to its reference pictures; returns the report with the new YAML text.
 
     `parts` names the part entries to fit (default: the `max_parts` next to the most outline error, chosen
     again each round). With `inner` (the default) a view's score is the mean of its outline IoU, class
     share and division share; without, the IoU alone. With `checks`, the asset's checks run before and after: parts whose moves
     left them floating are put back, and checks that newly fail are listed in `report["checks"]`.
+    `holdout` lists reference indices that are measured before and after but never scored: they choose
+    nothing and are not guarded, so they tell whether fitting the other pictures generalises.
     The file is not written: see `report["text"]`; `match` measures the result (`iou_after`).
     """
     t0 = time.perf_counter()
@@ -606,11 +617,13 @@ def fit_asset(path, root=None, *, res: int = 512, steps=STEPS, parts=None, max_p
         max_move = MAX_MOVE
     if not _num(max_move) or max_move <= 0:
         raise SightlineError(f"max_move must be a positive number of meters, got {max_move!r}", hint="e.g. --max-move 0.015")
+    held = check_holdout(asset, holdout)
     log = log or (lambda msg: None)
     log(f"setting up {len(asset.references)} view(s) at res {res}")
     views = [_setup_view(asset, i, res, inner) for i in range(len(asset.references))]
     state = _State(path, root, lines, data, asset, views, [v.score() for v in views],
-                   {k: copy.deepcopy(e) for k, e in enumerate(data["parts"])}, max_move=float(max_move), log=log)
+                   {k: copy.deepcopy(e) for k, e in enumerate(data["parts"])}, max_move=float(max_move), log=log,
+                   holdout=held)
     axes = symmetry_axes(asset)
     state.frozen = {k: frozen_params(e, axes) for k, e in enumerate(data["parts"])}
     state.frozen = {k: f for k, f in state.frozen.items() if f}
@@ -669,7 +682,7 @@ def fit_asset(path, root=None, *, res: int = 512, steps=STEPS, parts=None, max_p
     for v, a, b, m, s in zip(views, start, state.scores, after, after_inner):
         row = {"index": v.index, "view": v.view, "iou_before": round(v.iou0, 4), "iou_after": round(m, 4),
                "iou_start": round(a[1], 4), "iou_fitted": round(b[1], 4),
-               "score_start": round(a[0], 4), "score_fitted": round(b[0], 4)}
+               "score_start": round(a[0], 4), "score_fitted": round(b[0], 4), "holdout": v.index in held}
         if inner:
             row["structure_before"], row["structure_after"] = v.before, s
         out_views.append(row)
@@ -680,7 +693,21 @@ def fit_asset(path, root=None, *, res: int = 512, steps=STEPS, parts=None, max_p
                                                        for g, k in gains],
         "checks": check_info, "trials": state.evals, "seconds": round(time.perf_counter() - t0, 1), "text": new_text,
         "symmetry": {"axes": ["xyz"[a] for a in axes], "kept": sorted(_entry_name(data, k) for k in state.frozen)},
+        "holdout": sorted(held),
     }
+
+
+def check_holdout(asset, holdout) -> frozenset:
+    """Validated held-out reference indices; at least one reference must still steer."""
+    held = frozenset(int(i) for i in holdout or ())
+    n = len(asset.references)
+    bad = sorted(i for i in held if not 0 <= i < n)
+    if bad:
+        raise SightlineError(f"no reference {bad[0]} to hold out", hint=f"the asset has references 0..{n - 1}")
+    if len(held) >= n:
+        raise SightlineError("every reference is held out: nothing is left to fit to",
+                             hint="hold out fewer references than the asset has")
+    return held
 
 
 def _run_checks(asset) -> tuple[list, dict]:
@@ -734,6 +761,8 @@ def format_fit(rep: dict) -> str:
                      f"{sb['region_borders_on_part_boundaries']:.0%}/{sb['part_boundaries_on_borders']:.0%} -> "
                      f"{sa['region_borders_on_part_boundaries']:.0%}/{sa['part_boundaries_on_borders']:.0%}")
         line += f"   score {v['score_start']:.4f} -> {v['score_fitted']:.4f}"
+        if v.get("holdout"):
+            line += "   (held out: measured, not fitted to)"
         lines.append(line)
     lines.append(f"  mean IoU  {rep['mean_before']:.4f} -> {rep['mean_after']:.4f}  "
                  f"({rep['mean_after'] - rep['mean_before']:+.4f})")

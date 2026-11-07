@@ -31,9 +31,11 @@ from .style import display_path, read_yaml, resolve_root
 UP = 4  # pieces are traced at a quarter of a camera pixel
 MIN_PIECE_PX = 6.0  # camera px of model to remove (cuts) or of picture to add (fills) for a piece to count
 MIN_HOLE_UP_PX = 4  # enclosed outline bits smaller than this (quarter-pixel units) are noise, not islands
-TRACE_EPS = 1.2  # Douglas-Peucker tolerance in quarter pixels
+TRACE_EPS = 1.2  # Douglas-Peucker tolerance in quarter pixels (after SMOOTH_WINDOW averaging)
+SMOOTH_WINDOW = UP  # contour points on each side averaged before simplifying (one camera pixel)
 MAX_POINTS = 64  # the most an extrude outline may have: fewer, larger pieces under the part limit
 MAX_SPLIT = 8  # halvings of a piece that still encloses part of the outline
+SPLIT_OVERLAP = UP  # quarter pixels each half reaches into the other (no zero-thickness seam between two cuts)
 DEPTH_MARGIN = 0.05  # a cut reaches this far beyond the model on both sides of its direction
 TOUCH_STEP = 0.004  # grid of the test that a cut reaches a solid
 PLANES = {"z": ("front", "back"), "x": ("right", "left")}  # prism direction -> the views that see that plane
@@ -111,7 +113,7 @@ def _pieces(plane: "_Plane", mask: np.ndarray, weight: np.ndarray, min_weight: f
             continue
         split = depth < MAX_SPLIT and _has_hole(comp)
         if not split:
-            fine = st_mod.simplify(st_mod.outline(comp), eps=TRACE_EPS, max_points=10 ** 6)
+            fine = _traced_poly(comp, 10 ** 6)
             split = depth < MAX_SPLIT and len(fine) > MAX_POINTS
         if not split:
             pts = _outline(plane, comp)
@@ -124,15 +126,39 @@ def _pieces(plane: "_Plane", mask: np.ndarray, weight: np.ndarray, min_weight: f
             half[: (rows.min() + rows.max() + 1) // 2, :] = True
         else:
             half[:, : (cols.min() + cols.max() + 1) // 2] = True
-        out += _pieces(plane, comp & half, weight, min_weight, depth + 1)
-        out += _pieces(plane, comp & ~half, weight, min_weight, depth + 1)
+        # the halves overlap by SPLIT_OVERLAP: two cuts that only touched would leave a sheet of zero thickness
+        # on their shared face (max(d, -d1) = max(d, -d2) = 0 there), which the renderer draws as a line
+        one, other = half.copy(), ~half
+        for _ in range(SPLIT_OVERLAP):
+            one, other = ref_mod._dilate(one), ref_mod._dilate(other)
+        out += _pieces(plane, comp & one, weight, min_weight, depth + 1)
+        out += _pieces(plane, comp & other, weight, min_weight, depth + 1)
     return out
 
 
+def _smooth_contour(contour: np.ndarray) -> np.ndarray:
+    """A closed pixel contour with its staircase averaged out (a circular moving average over SMOOTH_WINDOW
+    points). Extruded through the body, every pixel step of a cut's outline becomes a ledge that shades as
+    a stripe on the surface it trims."""
+    k = len(contour)
+    if k < 2 * SMOOTH_WINDOW + 3:
+        return contour
+    pad = np.concatenate([contour[-SMOOTH_WINDOW:], contour, contour[:SMOOTH_WINDOW]])
+    kernel = np.ones(2 * SMOOTH_WINDOW + 1) / (2 * SMOOTH_WINDOW + 1)
+    return np.stack([np.convolve(pad[:, i], kernel, mode="valid") for i in range(2)], axis=1)
+
+
+def _traced_poly(comp: np.ndarray, max_points: int) -> np.ndarray:
+    return st_mod.simplify(_smooth_contour(st_mod.outline(comp)), eps=TRACE_EPS, max_points=max_points)
+
+
 def _outline(plane: "_Plane", comp: np.ndarray) -> np.ndarray | None:
-    poly = st_mod.simplify(st_mod.outline(comp), eps=TRACE_EPS, max_points=MAX_POINTS)
+    poly = _traced_poly(comp, MAX_POINTS)
     if len(poly) < 3:
         return None
+    cam = getattr(getattr(plane, "view", None), "camera", None)
+    if cam is not None:  # the smoothed corners sit between pixels: map them exactly (orthographic camera)
+        return cam.pixel_to_world((poly[:, 0] + 0.5) / UP, (poly[:, 1] + 0.5) / UP)
     r = np.clip(np.round(poly[:, 1]).astype(int), 0, comp.shape[0] - 1)
     c = np.clip(np.round(poly[:, 0]).astype(int), 0, comp.shape[1] - 1)
     return plane.world[r, c]
@@ -308,7 +334,7 @@ def _free_name(taken: set, stem: str, mirror: bool) -> str:
 
 def candidates(state, asset, axes: list[int], cuts: bool = True, fills: bool = True) -> list[tuple[float, dict]]:
     """(weight in camera px, entry) for every piece to try, cuts and fills, largest first."""
-    by_view = {v.view: v for v in state.views}
+    by_view = {v.view: v for v in state.views if v.index not in state.holdout}  # held-out pictures shape nothing
     lo, hi = asset.scene().bounds(include_helpers=False)
     planes = {}
     for axis, names in PLANES.items():
@@ -325,8 +351,8 @@ def candidates(state, asset, axes: list[int], cuts: bool = True, fills: bool = T
             frame = ref_mod._dilate(frame)
         region = frame
         mirror = plane.mirror_x  # then only the -x half, written with mirror: x (the outline is symmetric)
-        if mirror:
-            region = frame & (plane.world[..., 0] <= 0.0)
+        if mirror:  # reaching a pixel past x = 0, so a piece and its mirror twin overlap instead of meeting
+            region = frame & (plane.world[..., 0] <= plane.view.camera.mpp)
         tag = "front" if axis == "z" else "side"
         if cuts:
             outside = region & ~plane.union
@@ -360,9 +386,10 @@ def _append_text(text: str, entries: list[dict]) -> str:
 
 
 def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bool = True, checks: bool = True,
-                log=None) -> dict:
+                holdout=(), log=None) -> dict:
     """Carve and fill the asset file at `path` against its reference pictures; returns the report with the
-    new YAML text (`report["text"]`). The file is not written."""
+    new YAML text (`report["text"]`). The file is not written. `holdout` reference indices are measured but
+    shape no piece and are not scored (see `fit_asset`)."""
     t0 = time.perf_counter()
     log = log or (lambda msg: None)
     path = pathlib.Path(path)
@@ -380,9 +407,12 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
                              where=display_path(path, root), hint="orbit and top views are not carved")
     if isinstance(res, bool) or not isinstance(res, int) or not 64 <= res <= 2048:
         raise SightlineError("res must be an integer from 64 to 2048", hint="e.g. --res 512")
+    held = fit_mod.check_holdout(asset, holdout)
+    if not any(r.view in known for i, r in enumerate(asset.references) if i not in held):
+        raise SightlineError("every front, back, left or right reference is held out: nothing to carve to")
     log(f"setting up {len(asset.references)} view(s) at res {res}")
     views = [fit_mod._setup_view(asset, i, res) for i in range(len(asset.references))]
-    state = fit_mod._State(path, root, lines, data, asset, views, [v.score() for v in views], {})
+    state = fit_mod._State(path, root, lines, data, asset, views, [v.score() for v in views], {}, holdout=held)
     start = list(state.scores)
     floor = [s[0] - fit_mod.FLOOR_TOL for s in start]
     axes = fit_mod.symmetry_axes(asset)
@@ -408,7 +438,7 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
         if res_ is None:
             tried[name] = f"refused by the loader: {err}"
             continue
-        gain = float(np.mean([s[0] for s in res_["scores"]])) - state.mean
+        gain = float(np.mean([s[0] for s in state.active(res_["scores"])])) - state.mean
         if gain <= fit_mod.MIN_GAIN:
             tried[name] = f"score {gain * 100:+.3f} alone"
             continue
@@ -429,8 +459,8 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
                 tried[name] = f"refused by the loader: {err}"
                 continue
             scores = res_["scores"]
-            gain = float(np.mean([s[0] for s in scores])) - state.mean
-            low = [v.view for v, s, f in zip(views, scores, floor) if s[0] < f]
+            gain = float(np.mean([s[0] for s in state.active(scores)])) - state.mean
+            low = [v.view for v, s, f in zip(views, scores, floor) if s[0] < f and v.index not in held]
             if gain <= fit_mod.MIN_GAIN or low:
                 tried[name] = f"score {gain * 100:+.3f}" + (f", {'/'.join(low)} below its start" if low else "")
                 continue
@@ -454,7 +484,7 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
                      "structure_after": {"classes": r["class_agreement_areas"], "classes_strict": r["class_agreement"],
                                          "region_borders_on_part_boundaries": r["region_borders_on_part_boundaries"],
                                          "part_boundaries_on_borders": r["part_boundaries_on_borders"]},
-                     "score_start": round(s0[0], 4), "score_after": round(s1[0], 4)})
+                     "score_start": round(s0[0], 4), "score_after": round(s1[0], 4), "holdout": v.index in held})
     return {
         "asset": asset.name, "path": display_path(path, root), "res": res, "views": rows,
         "mean_before": round(float(np.mean([v.iou0 for v in views])), 4),
@@ -462,7 +492,7 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
         "kept": [{"name": e["name"], "kind": "cut" if e.get("op") == "cut" else "fill", "mirror": bool(e.get("mirror")),
                   "material": e.get("material"), "from": len(e.get("from", []))} for e in kept],
         "refused": [{"name": n, "why": why} for n, why in tried.items() if n not in kept_names],
-        "candidates": len(cands), "checks": check_info, "symmetry": ["xyz"[a] for a in axes],
+        "candidates": len(cands), "checks": check_info, "symmetry": ["xyz"[a] for a in axes], "holdout": sorted(held),
         "trials": state.evals, "seconds": round(time.perf_counter() - t0, 1), "text": new_text,
     }
 
@@ -526,7 +556,8 @@ def format_carve(rep: dict) -> str:
                      f"({v['iou_after'] - v['iou_before']:+.3f})   classes {sb['classes']:.0%} -> {sa['classes']:.0%}   "
                      f"divisions {sb['region_borders_on_part_boundaries']:.0%}/{sb['part_boundaries_on_borders']:.0%} -> "
                      f"{sa['region_borders_on_part_boundaries']:.0%}/{sa['part_boundaries_on_borders']:.0%}   "
-                     f"score {v['score_start']:.4f} -> {v['score_after']:.4f}")
+                     f"score {v['score_start']:.4f} -> {v['score_after']:.4f}"
+                     + ("   (held out: measured, not carved to)" if v.get("holdout") else ""))
     lines.append(f"  mean IoU  {rep['mean_before']:.4f} -> {rep['mean_after']:.4f}  "
                  f"({rep['mean_after'] - rep['mean_before']:+.4f})")
     if rep["symmetry"]:

@@ -1262,6 +1262,25 @@ def _soft_fit(cover: np.ndarray, mc: np.ndarray) -> tuple[float, float, float]:
     return iou, (r_sum - inter) / max(1e-9, r_sum), (m_sum - inter) / max(1e-9, m_sum)
 
 
+OUTLINE_TOL_PX = 1  # outline agreement: contour pixels within this many grid px (8-neighbour) of the other contour
+
+
+def outline_agreement(picture: np.ndarray, model: np.ndarray, mpp: float, tol_px: int = OUTLINE_TOL_PX) -> dict:
+    """How well the two outlines coincide, apart from the areas IoU weighs: the share of the picture's contour
+    pixels within `tol_px` of the model's contour (`picture`, i.e. recall) and of the model's contour within
+    `tol_px` of the picture's (`model`, precision). A thin missing finger costs little IoU but its whole
+    length of outline here."""
+    rc = picture & ~_erode(picture)
+    mc = model & ~_erode(model)
+    near_m, near_r = mc.copy(), rc.copy()
+    for _ in range(tol_px):
+        near_m, near_r = _dilate(near_m), _dilate(near_r)
+    pic = float((rc & near_m).sum()) / max(1, int(rc.sum()))
+    mod = float((mc & near_r).sum()) / max(1, int(mc.sum()))
+    return {"picture": round(pic, 3), "model": round(mod, 3), "tolerance_px": tol_px,
+            "tolerance_m": round(tol_px * mpp, 4)}
+
+
 def opposite_view(view: str) -> str | None:
     """The view from the other side (front <-> back, left <-> right, orbit az <-> az + 180 at -el), else None."""
     named = {"front": "back", "back": "front", "left": "right", "right": "left"}
@@ -1558,6 +1577,7 @@ def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover
         "iou": round(iou, 3),
         "missing": round(missing, 3),
         "extra": round(extra, 3),
+        "outline": outline_agreement(R, M, mpp),
         "aspect": {"reference": round(size_ref[1] / max(size_ref[0], 1e-9), 3), "model": round(m_size[1] / max(m_size[0], 1e-9), 3)},
         "axes": [h_name, vax[0]],
         "width_profile": profile,
@@ -1622,6 +1642,11 @@ def format_match(report: dict) -> str:
     lines.append(size_line)
     lines.append(f"FIT     IoU {r['iou']:.2f}   missing {_pct(r['missing'])} (reference not covered)   "
                  f"extra {_pct(r['extra'])} (model outside the reference)")
+    o = r.get("outline")
+    if o:
+        lines.append(f"OUTLINE {_pct(o['picture'])} of the reference's outline lies within {o['tolerance_px']} px "
+                     f"({o['tolerance_m'] * 1000:.0f} mm) of the model's; {_pct(o['model'])} of the model's within "
+                     f"{o['tolerance_px']} px of the reference's")
     c = r.get("ceiling")
     if c:
         lines.append(f"CEILING the {c['view']} picture (reference[{c['other']}]) mirrored agrees with this one on IoU "

@@ -565,7 +565,8 @@ def cmd_fit(args) -> int:
         print(f"fit: {msg}", file=sys.stderr, flush=True)
 
     rep = fit_asset(asset.path, asset.root, res=args.res, steps=steps, parts=parts, max_parts=args.max_parts,
-                    max_move=args.max_move, checks=not args.no_check, inner=not args.outline_only, log=log)
+                    max_move=args.max_move, checks=not args.no_check, inner=not args.outline_only,
+                    holdout=_holdout(args), log=log)
     target = None
     if args.write:
         target = pathlib.Path(asset.path)
@@ -590,6 +591,16 @@ def cmd_fit(args) -> int:
     return EXIT_FAIL if rep.get("refused") else EXIT_OK
 
 
+def _holdout(args) -> list[int]:
+    if not getattr(args, "holdout", None):
+        return []
+    try:
+        return [int(s) for s in args.holdout.split(",") if s.strip()]
+    except ValueError:
+        raise SightlineError(f"--holdout takes reference indices separated by commas, got {args.holdout!r}",
+                             hint="e.g. --holdout 3") from None
+
+
 def cmd_carve(args) -> int:
     from .carve import carve_asset, format_carve
     from .fit import edit_yaml
@@ -604,7 +615,7 @@ def cmd_carve(args) -> int:
         print(f"carve: {msg}", file=sys.stderr, flush=True)
 
     rep = carve_asset(asset.path, asset.root, res=args.res, cuts=not args.no_cuts, fills=not args.no_fills,
-                      checks=not args.no_check, log=log)
+                      checks=not args.no_check, holdout=_holdout(args), log=log)
     target = pathlib.Path(asset.path) if args.write else (pathlib.Path(args.out) if args.out else None)
     ck = rep.get("checks")
     if target is not None and ck and ck["new_failures"] and not args.force:
@@ -883,6 +894,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--max-parts", type=int, default=40, help="parts fitted per round (default 40)")
     sp.add_argument("--write", action="store_true", help="write the fitted numbers into the asset file (comments kept)")
     sp.add_argument("--out", help="write a fitted copy to this path instead (its asset: name follows the file name)")
+    sp.add_argument("--holdout", help="reference indices (comma-separated) to measure but never fit to: they show whether fitting the other pictures generalises")
     sp.add_argument("--outline-only", action="store_true",
                     help="score the outline IoU alone (default: IoU, classes and divisions as structure measures them)")
     sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")
@@ -895,6 +907,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--res", type=int, default=512, help="render size of the comparison (default 512)")
     sp.add_argument("--no-cuts", action="store_true", help="only fill")
     sp.add_argument("--no-fills", action="store_true", help="only cut")
+    sp.add_argument("--holdout", help="reference indices (comma-separated) to measure but never fit to: they show whether fitting the other pictures generalises")
     sp.add_argument("--write", action="store_true", help="add the kept pieces to the asset file (comments kept)")
     sp.add_argument("--out", help="write a carved copy to this path instead (its asset: name follows the file name)")
     sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")

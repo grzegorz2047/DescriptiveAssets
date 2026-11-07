@@ -345,6 +345,10 @@ reference:                      # one mapping or a list of them
   `ok within … (an edge runs along the band border)`. `suggested` in the color table is the
   picture's colour for flat paint, and base × reference / rendered divided by the picture's overall
   light for lit pictures (only parts that differ from the rest change).
+- **Outline** (`OUTLINE` line, `outline` in `--json`): the share of the picture's contour pixels that
+  lie within 1 grid px (8-neighbour; its size in mm is printed) of the model's contour, and the share
+  of the model's contour within 1 px of the picture's. IoU weighs areas, so a missing finger or a
+  plate edge 2 px off costs it little; here it costs its whole length.
 - **Ceiling** (`CEILING` line, `ceiling` in `--json`): when the asset also has a picture from the
   opposite side (front/back, left/right, `orbit:a:e` and `orbit:a+180:-e`), `match` compares the two
   pictures, one mirrored, both standing on the ground at their heights and the other shifted
@@ -452,7 +456,7 @@ is a starting point: render it next to a picture of the original and refine with
 ### 5.3 Fitting numbers to the pictures (`sightline fit`)
 
 `sightline fit <asset> [--parts a,b] [--res 512] [--steps 4,2,1] [--max-move 0.015] [--max-parts 40]
-[--outline-only] [--write | --out PATH] [--no-check] [--force] [--json]` moves the numbers of the parts
+[--holdout I,J] [--outline-only] [--write | --out PATH] [--no-check] [--force] [--json]` moves the numbers of the parts
 next to the outline errors in small steps. Each view scores the mean of three shares as `match` and
 `structure` measure them: the outline's soft IoU, the classes that agree (every shared pixel) and the
 divisions (picture borders on part boundaries and part boundaries on borders, averaged). A step is
@@ -486,20 +490,33 @@ Fit after the shapes are right and before the last colour pass: it refines outli
 centimetre or two, it does not add missing parts, and painted zones (`op: paint`) stay where they
 are. Run `structure --trace fix --paint` per view afterwards for the patches that are left.
 
+**Held-out pictures** (`--holdout I,J`, also for `carve`): those references are measured before and
+after but never scored, never guarded and never choose what moves (for `carve` they do not shape the
+outline either; `VIEWS` marks them). Fitting all four pictures and then reading their scores tells how
+well the model matches the drawings it was tuned on; a held-out picture tells whether that tuning
+captured the shape or only the drawings. At least one reference must stay in. The robot carved
+with its left picture held out: right IoU 0.927 -> 0.952, the held-out left 0.938 -> 0.923, so its
+two side drawings disagree (their `CEILING` agreement is 0.91) and carving to one hurts the other;
+with both in, `carve` cuts only outside their union and both rise.
+
 ### 5.4 Carving to the pictures (`sightline carve`)
 
-`sightline carve <asset> [--res 512] [--no-cuts] [--no-fills] [--write | --out PATH] [--no-check] [--force]
-[--json]` removes what sticks out of the pictures and adds what they all show, without moving any part:
+`sightline carve <asset> [--res 512] [--no-cuts] [--no-fills] [--holdout I,J] [--write | --out PATH] [--no-check]
+[--force] [--json]` removes what sticks out of the pictures and adds what they all show, without moving any part:
 
 - **Cuts.** For each viewing direction (front and back pictures: prisms along z; right and left: along
   x) the outline is the union of its pictures, plus their mirror images across x = 0 when the asset
   has a `symmetric` check, so a cut never removes what any picture shows. What lies outside it, within
   the frame of the pictures and the model, is split into pieces traced at a quarter pixel (a piece
-  that surrounds part of the outline, or needs more than 64 corners, is halved until it does not);
-  each piece that holds at least 6 px of model becomes an `op: cut` extrude through the whole body,
-  written on the -x side with `mirror: x` for a symmetric asset. Its `from:` lists only the solids it
-  really reaches: every listed solid tests the outline at every ray step, so render and check time
-  grows with long lists.
+  that surrounds part of the outline, or needs more than 64 corners, is halved until it does not;
+  halves overlap by a pixel, and a symmetric asset's -x pieces reach a pixel past x = 0, because two
+  cuts that only touch leave a sheet of zero thickness on their shared face); each piece that holds at
+  least 6 px of model becomes an `op: cut` extrude through the whole body, written on the -x side
+  with `mirror: x` for a symmetric asset. Its outline is the piece's contour averaged over a pixel
+  before it is simplified: extruded through the body, every pixel step would become a ledge that
+  shades as a stripe across the surface the cut trims. Its `from:` lists only the solids it really
+  reaches: every listed solid tests the outline at every ray step, so render and check time grows
+  with long lists.
 - **Fills.** Where the intersection of the pictures shows the object and the model has nothing, an
   extrude fills the piece: its outline in this direction, and across it the other direction's
   pictures between the piece's heights (a piece of the visual hull), else the model's whole depth.

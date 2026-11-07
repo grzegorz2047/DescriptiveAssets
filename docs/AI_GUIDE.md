@@ -169,7 +169,10 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      (100% within 1 px: only the line work differs), its right and left on 0.91 (96% within 1 px:
      the drawings disagree at the toe, the lower back, the back of the chest and the face), so no
      model can average more than 0.95 over the two sides. Ask the designer which drawing is right
-     where they disagree instead of splitting the difference.
+     where they disagree instead of splitting the difference. `--holdout` on `fit` or `carve` shows
+     the cost: carving the robot to its right picture alone took the held-out left from 0.938 to
+     0.923. The designer let one side go, so the robot keeps front, back and left (IoU 0.949 / 0.951
+     / 0.954) and the right picture is noted in the asset file as left out, with the reason.
    - When the shapes are right, let `sightline fit <asset> --out out/<asset>_fit.yaml` refine the
      numbers (at, size, radius, rotate, outline widths) within 1.5 cm, then read its VIEWS lines and
      the diff and copy it over the asset. It keeps a step only if the mean of outline IoU, classes and
