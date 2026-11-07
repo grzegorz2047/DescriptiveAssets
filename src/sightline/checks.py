@@ -524,7 +524,7 @@ def _evaluate(ctx: _Context, e: CheckEntry) -> CheckResult:
         except ImportError as exc:
             raise SightlineError(f"reference matching is not available ({exc})", where=e.where,
                                  hint="sightline.reference.match_asset is required for matches_reference") from None
-        m = match_asset(ctx.asset, index=a["index"], res=a["res"])
+        m = match_asset(ctx.asset, index=a["index"], res=a["res"], ceiling=False)
         iou, missing = float(m["iou"]), float(m["missing"])
         problems = []
         if iou < a["min_iou"] - 1e-9:

@@ -544,6 +544,52 @@ def cmd_import(args) -> int:
     _wrote([out])
     return EXIT_OK
 
+def cmd_fit(args) -> int:
+    from .fit import STEPS, fit_asset, format_fit
+
+    asset = _load(args.asset, args)
+    if args.write and args.out:
+        raise SightlineError("use --write or --out, not both", hint="--write changes the asset file; --out PATH writes a copy")
+    steps = STEPS
+    if args.steps:
+        try:
+            steps = tuple(float(s) / 1000.0 for s in args.steps.split(",") if s.strip())
+        except ValueError:
+            raise SightlineError(f"--steps must be millimeters separated by commas, got {args.steps!r}",
+                                 hint="e.g. --steps 4,2,1") from None
+        if not steps or any(s <= 0 for s in steps):
+            raise SightlineError("--steps needs at least one positive step", hint="e.g. --steps 4,2,1")
+    parts = [p.strip() for p in args.parts.split(",") if p.strip()] if args.parts else None
+
+    def log(msg):
+        print(f"fit: {msg}", file=sys.stderr, flush=True)
+
+    rep = fit_asset(asset.path, asset.root, res=args.res, steps=steps, parts=parts, max_parts=args.max_parts,
+                    max_move=args.max_move, checks=not args.no_check, inner=not args.outline_only, log=log)
+    target = None
+    if args.write:
+        target = pathlib.Path(asset.path)
+    elif args.out:
+        target = pathlib.Path(args.out)
+    ck = rep.get("checks")
+    if target is not None and ck and ck["new_failures"] and not args.force:
+        rep["refused"] = "a check that passed before fails now (--force writes anyway)"
+        target = None
+    if target is not None:
+        text = rep["text"]
+        if target.resolve() != pathlib.Path(asset.path).resolve():
+            from .fit import edit_yaml
+            text = edit_yaml(text, {("asset",): target.stem})
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        rep["written"] = _show(target)
+    if args.json:
+        _json({k: v for k, v in rep.items() if k != "text"})
+    else:
+        sys.stdout.write(format_fit(rep))
+    return EXIT_FAIL if rep.get("refused") else EXIT_OK
+
+
 def cmd_match(args) -> int:
     from .reference import fit_view, format_fit, format_match, match_asset
 
@@ -789,6 +835,24 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--fit-view", action="store_true", help="first guess the picture's camera angle")
     sp.add_argument("--res", type=int, default=256, help="render size (default 256)")
     sp.add_argument("--out", help="output folder (default: <root>/out/<asset>)")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("fit", cmd_fit, "nudge part numbers (at, size, radius, rotate ...) until the outlines match the reference "
+                             "pictures better; keeps a step only if the mean IoU rises and no view falls")
+    sp.add_argument("asset")
+    sp.add_argument("--parts", help="comma-separated part entries to fit (default: the ones next to the most outline "
+                                    "error, chosen again each round)")
+    sp.add_argument("--res", type=int, default=512, help="render size of the comparison (default 512)")
+    sp.add_argument("--steps", help="step sizes in mm, one round each (default 4,2,1; rotate: 1 degree per 4 mm)")
+    sp.add_argument("--max-move", type=float, default=0.015,
+                    help="no number moves further than this from where it started, in m (default 0.015)")
+    sp.add_argument("--max-parts", type=int, default=40, help="parts fitted per round (default 40)")
+    sp.add_argument("--write", action="store_true", help="write the fitted numbers into the asset file (comments kept)")
+    sp.add_argument("--out", help="write a fitted copy to this path instead (its asset: name follows the file name)")
+    sp.add_argument("--outline-only", action="store_true",
+                    help="score the outline IoU alone (default: IoU, classes and divisions as structure measures them)")
+    sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")
+    sp.add_argument("--force", action="store_true", help="write even if a check that passed before fails now")
     sp.add_argument("--json", action="store_true")
 
     sp = add("structure", cmd_structure, "divisions inside a picture (edges, regions, relief guess); with an asset: "

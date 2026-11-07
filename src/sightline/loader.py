@@ -29,7 +29,7 @@ from .model import (
 )
 from .style import display_path, load_style, read_yaml, resolve_root
 
-__all__ = ["load_asset", "load_asset_text", "list_assets", "twin_name", "read_yaml", "MAX_PARTS"]
+__all__ = ["load_asset", "load_asset_text", "asset_from_data", "list_assets", "twin_name", "read_yaml", "MAX_PARTS"]
 
 TOP_KEYS = ("asset", "brief", "style", "tags", "parts", "reference", "checks")
 PART_KEYS = ("name", "shape", *PARAM_KEYS, "material", "at", "on", "between", "align", "offset", "follow", "rotate",
@@ -615,8 +615,17 @@ def load_asset_text(text: str, path, root=None) -> Asset:
     """Load an asset from YAML text as if it were the file at `path` (used for files and old revisions)."""
     path = pathlib.Path(path)
     root = resolve_root(root, start=path.parent)
+    data, lines = read_yaml(text, display_path(path, root))
+    return asset_from_data(data, lines, path, root)
+
+
+def asset_from_data(data, lines: dict, path, root=None) -> Asset:
+    """Build an asset from parsed YAML (`read_yaml`'s data and line map) as if read from the file at `path`.
+
+    `fit` rebuilds edited copies of one parse this way instead of parsing the text again."""
+    path = pathlib.Path(path)
+    root = resolve_root(root, start=path.parent)
     label = display_path(path, root)
-    data, lines = read_yaml(text, label)
     ctx = _Ctx(label, lines)
     if data is None:
         ctx.fail("empty asset file", "", (), f"start with asset: {path.stem} and a parts: list")

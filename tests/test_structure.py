@@ -342,3 +342,12 @@ def test_trace_fix_paints_only_where_the_model_differs(scratch):
     assert before["class_agreement_areas"] < 0.75 < 0.95 < after["class_agreement_areas"]
     with pytest.raises(SightlineError, match="no region R999"):
         st.trace_regions(asset, ["R999"], res=256)
+
+
+def test_edges_of_a_flat_picture_are_empty():
+    """A picture with nothing inside its outline (one flat colour) has no edges, not an error."""
+    rgb = np.full((40, 40, 3), 120, dtype=np.float32)
+    mask = np.zeros((40, 40), dtype=bool)
+    mask[5:35, 5:35] = True
+    edge, _, facts = st.edges(rgb, mask)
+    assert not edge.any() and facts["share"] == 0.0

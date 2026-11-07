@@ -151,29 +151,48 @@ def wedge(x, y, z, hx: float, hy: float, hz: float):
     return _extrude(d2, np.abs(x) - hx)
 
 
+POLY_BATCH = 4096  # up to this many points, polygon2 takes all edges at once (edges x points arrays)
+
+
 def polygon2(x, y, verts) -> np.ndarray:
-    """Signed distance to a simple 2D polygon (verts (E, 2), any winding; negative inside; exact)."""
+    """Signed distance to a simple 2D polygon (verts (E, 2), any winding; negative inside; exact).
+
+    Sphere tracing calls this with a few hundred points per step, where a Python loop over 30-60 edges
+    costs more than the arithmetic, so small batches take every edge at once; large ones loop over the
+    edges. Both orders give the same float32 results."""
     v = np.asarray(verts, dtype=np.float64)
     shape = np.shape(x)
     px = np.asarray(x, dtype=np.float32).reshape(-1)
     py = np.asarray(y, dtype=np.float32).reshape(-1)
     d2 = (px - F32(v[0, 0])) ** 2 + (py - F32(v[0, 1])) ** 2
-    inside = np.zeros(px.shape, dtype=bool)
-    n = len(v)
-    for i in range(n):
-        ax, ay = v[i]
-        bx, by = v[(i + 1) % n]
-        ex, ey = F32(bx - ax), F32(by - ay)
-        wx, wy = px - F32(ax), py - F32(ay)
-        ee = float(ex * ex + ey * ey)
-        t = np.clip((wx * ex + wy * ey) / F32(ee if ee > 0 else 1.0), 0.0, 1.0)
-        dx, dy = wx - ex * t, wy - ey * t
-        d2 = np.minimum(d2, dx * dx + dy * dy)
+    nxt = np.roll(v, -1, axis=0)
+    ex = (nxt[:, 0] - v[:, 0]).astype(F32)  # edge vectors, rounded from float64 like the vertices
+    ey = (nxt[:, 1] - v[:, 1]).astype(F32)
+    ax, ay, by = v[:, 0].astype(F32), v[:, 1].astype(F32), nxt[:, 1].astype(F32)
+    ee = ex * ex + ey * ey
+    ee = np.where(ee > 0, ee, F32(1.0)).astype(F32)
+    if px.size <= POLY_BATCH:
+        ex2, ey2, ee2 = ex[:, None], ey[:, None], ee[:, None]
+        wx, wy = px[None, :] - ax[:, None], py[None, :] - ay[:, None]
+        t = np.clip((wx * ex2 + wy * ey2) / ee2, 0.0, 1.0)
+        dx, dy = wx - ex2 * t, wy - ey2 * t
+        d2 = np.minimum(d2, (dx * dx + dy * dy).min(axis=0))
         # crossing number: the edge straddles the horizontal line through p, to the right of p
-        up = (py >= F32(ay)) & (py < F32(by))
-        down = (py < F32(ay)) & (py >= F32(by))
-        cross = ex * wy - ey * wx
-        inside ^= (up & (cross > 0)) | (down & (cross < 0))
+        cross = ex2 * wy - ey2 * wx
+        up = (py[None, :] >= ay[:, None]) & (py[None, :] < by[:, None])
+        down = (py[None, :] < ay[:, None]) & (py[None, :] >= by[:, None])
+        inside = np.bitwise_xor.reduce((up & (cross > 0)) | (down & (cross < 0)), axis=0)
+    else:
+        inside = np.zeros(px.shape, dtype=bool)
+        for i in range(len(v)):
+            wx, wy = px - ax[i], py - ay[i]
+            t = np.clip((wx * ex[i] + wy * ey[i]) / ee[i], 0.0, 1.0)
+            dx, dy = wx - ex[i] * t, wy - ey[i] * t
+            d2 = np.minimum(d2, dx * dx + dy * dy)
+            up = (py >= ay[i]) & (py < by[i])
+            down = (py < ay[i]) & (py >= by[i])
+            cross = ex[i] * wy - ey[i] * wx
+            inside ^= (up & (cross > 0)) | (down & (cross < 0))
     d = np.sqrt(d2)
     return np.where(inside, -d, d).astype(np.float32).reshape(shape)
 

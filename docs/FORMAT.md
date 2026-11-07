@@ -345,6 +345,14 @@ reference:                      # one mapping or a list of them
   `ok within … (an edge runs along the band border)`. `suggested` in the color table is the
   picture's colour for flat paint, and base × reference / rendered divided by the picture's overall
   light for lit pictures (only parts that differ from the rest change).
+- **Ceiling** (`CEILING` line, `ceiling` in `--json`): when the asset also has a picture from the
+  opposite side (front/back, left/right, `orbit:a:e` and `orbit:a+180:-e`), `match` compares the two
+  pictures, one mirrored, both standing on the ground at their heights and the other shifted
+  sideways to its best IoU. Seen from opposite sides, any object's outlines are mirror images, so this
+  agreement bounds every model: the two views' IoUs cannot average more than (1 + agreement) / 2.
+  Two drawings of one outline usually agree on 0.95-0.97 (the line work differs by a pixel); a much
+  lower figure, or one below 99% within 1 px, means the pictures disagree about the shape, which is
+  a question for the designer. `matches_reference` checks do not compute it.
 
 ### 5.1 Picture structure (`sightline structure`)
 
@@ -374,8 +382,13 @@ and reports:
   class border in either image (where the borders lie is DIVISIONS' job); the strict figure over every
   shared pixel follows in brackets. The picture's classes come from its colours averaged with the mirror
   image when the silhouette is left/right symmetric (IoU >= 0.9), so light from one side does not turn
-  one side's material dark; lights and decals are still read from the picture itself. The model's
-  classes come from its materials' own colours (unlit; Otsu, or L 50 for a one-toned model).
+  one side's material dark; lights and decals are still read from the picture itself. The picture is
+  read on a grid of its own (its object's bbox plus 8%, the same pixel size as the comparison) and
+  sampled onto the model's grid, so the picture's regions and classes do not change when the model
+  does: on the model's grid a crop one row smaller could flip a large joined region and move the
+  figure by several points. The model's classes come from its materials' own colours (unlit): dark
+  and bright split in the middle of the widest lightness gap between the materials it shows (L 50
+  when that gap is under 18, a one-toned model), independent of how much of the view each covers.
 - `DIVISIONS`: the share of the picture's region borders with a model part boundary within 2 px, and of
   the model's part boundaries that lie on a picture border or edge. `DETAIL` gives the same against every
   edge pixel, grooves and lines inside elements included.
@@ -435,6 +448,43 @@ Every part carries a comment with its source, fill ratio, fit error (RMS distanc
 vertices from the part's surface) and colour; `WORST FITS` lists the parts to refine first. The file
 is a starting point: render it next to a picture of the original and refine with `match` and
 `structure`.
+
+### 5.3 Fitting numbers to the pictures (`sightline fit`)
+
+`sightline fit <asset> [--parts a,b] [--res 512] [--steps 4,2,1] [--max-move 0.015] [--max-parts 40]
+[--outline-only] [--write | --out PATH] [--no-check] [--force] [--json]` moves the numbers of the parts
+next to the outline errors in small steps. Each view scores the mean of three shares as `match` and
+`structure` measure them: the outline's soft IoU, the classes that agree (every shared pixel) and the
+divisions (picture borders on part boundaries and part boundaries on borders, averaged). A step is
+kept when the mean score over all the references rises, and no view's score ever falls more than
+0.0005 below where it started: views may trade a little, none ends worse. So moving a plate to fit
+an outline is refused when it pulls the plate off the picture's panel line, and moving a part along
+a painted view's depth when the surface leaves its paint. `--outline-only` scores the IoU alone and
+then no view may fall by more than 0.00005 in any step. A centred part of an asset with a
+`symmetric` check (at or offset 0 across the mirror plane, no mirror twin) keeps that 0 and does not
+turn out of the plane (`SYMMETRY` line): a hand-drawn concept is never quite symmetric, the asset
+is meant to be. Numbers it may change are the ones an entry
+spells out: `at`, `offset`, `size`, `radius`, `height`, `depth`, `top_radius`, `thickness`, `round`,
+`rotate` (1 degree per 4 mm step) and the width and height of extrude `points:` / `side:` outlines
+(scaled about their box centre). Mirrored and repeated copies move with their entry; `op: paint`
+entries never move. Each round (one per `--steps` value, in mm) picks again the `--max-parts`
+entries next to the most error (extra pixels count for the part shown there, missing pixels for the
+nearest part shown) or uses `--parts`, and steps each number in one direction while it helps (up to
+6 steps); no number moves further than `--max-move` m from where it started.
+
+A step re-renders only the window of each view that the changed parts can touch (their blend
+group's or cut's box, old and new), on a sub-camera of the same pixel grid, so it costs a fraction
+of a second. Fitting keeps the picture placement of the first `match`; afterwards `match` measures
+the result with its own alignment (the `VIEWS` lines: before -> after, and the fitting's own
+figures). With checks (the default), the asset's checks run before and after: entries whose moves
+left parts floating are put back, and checks that passed before and fail now are listed; then
+`--write` (the asset file, comments and layout kept: only the changed numbers are rewritten) and
+`--out` (a copy whose `asset:` follows its file name) write nothing unless `--force`, and the exit
+code is 1. Without `--write` or `--out` it is a dry run. `GAINS` lists the entries that added most.
+
+Fit after the shapes are right and before the last colour pass: it refines outlines within a
+centimetre or two, it does not add missing parts, and painted zones (`op: paint`) stay where they
+are. Run `structure --trace fix --paint` per view afterwards for the patches that are left.
 
 ## 6. Levels
 
@@ -533,7 +583,8 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline sheet [<asset>...] [--out PATH] [--res N] [--view V]` | `out/library.png`: assets side by side at one scale with the human |
 | `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--quality full\|high\|medium\|low] [--max-tris N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table with triangles before and after decimation |
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
-| `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
+| `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png`; `CEILING` when a picture from the opposite side exists |
+| `sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--outline-only] [--write\|--out PATH] [--no-check] [--force] [--json]` | part numbers moved toward the pictures (section 5.3); a dry run unless `--write` or `--out` |
 | `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS\|disagree\|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |

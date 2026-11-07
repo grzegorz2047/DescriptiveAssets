@@ -387,8 +387,13 @@ Implementation notes (additive API, all in use by other modules):
 - `make_part` takes keyword-only `source=` and `tags=`. Part, Style, Group, Asset, ViewBuffers and
   VoxelGrid are `dataclass(eq=False)` (identity equality; the generated `__eq__` fails on numpy).
 - `loader.load_asset_text(text, path, root)` loads YAML text as if it were the file at `path` (old
-  git revisions); `loader.list_assets(root)`, `style.list_styles(root)`, `style.read_yaml` (data
+  git revisions); `loader.asset_from_data(data, lines, path, root)` builds an asset from one parse
+  (`read_yaml`'s data and line map), which `fit` uses to rebuild edited copies without parsing the
+  text again; `loader.list_assets(root)`, `style.list_styles(root)`, `style.read_yaml` (data
   plus a line map) and `style.resolve_root(root, start)` are public.
+- `sdf.polygon2` takes every edge at once (edges x points arrays) for up to `POLY_BATCH` = 4096
+  points and loops over the edges above that; both give the same float32 values. Sphere tracing
+  calls it with a few hundred points per step, where the loop cost more than the arithmetic.
 
 ## 6. Geometry passes
 
@@ -928,6 +933,8 @@ sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-ce
                  [--quality full|high|medium|low] [--max-tris N] [--out PATH]
 sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit|flat] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
+sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--outline-only]
+              [--write | --out PATH] [--no-check] [--force] [--json]   # exit 1 when a check newly fails
 sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS|disagree|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
@@ -1025,6 +1032,18 @@ model, in the same units and grid formats, so the agent compares text with text.
    `unknowns` (from the reference analysis).
 4. Images: `out/<asset>/match_<i>.png` = reference | model render | overlay (both = grey,
    model-only = red, reference-only = blue) | part map over the reference, with captions.
+
+`match_asset(..., ceiling=True)` adds `ceiling`: `picture_agreement(asset, index, mpp)` when the
+asset has a reference from the opposite side (`opposite_view`: front <-> back, left <-> right,
+`orbit:a:e` <-> `orbit:a+180:-e`), else None (also None with a `view` override, and `checks.py`
+passes `ceiling=False`). `picture_agreement` puts both picture masks on one grid of `mpp` meters,
+standing on the ground at their heights (equal heights when either has none), mirrors the other one
+by a column flip of a grid symmetric about x = 0, shifts it sideways (whole pixels within a quarter of
+the wider picture, then +-0.25 / 0.5 px) to its best soft IoU and returns `{other, view, image, iou,
+within_1px, pair_mean_max = (1 + iou) / 2, shift}`. The bound holds because the Jaccard distance
+(soft: Ruzicka) is a metric and a model's opposite silhouettes are exact mirror images. `_Match`
+also carries `cover` and `coverage` (soft picture and model shares of each grid pixel), `camera`
+and `origin` (the grid pixel of camera pixel (0, 0)), which `fit` builds on.
 
 `fit_view(asset, index=0) -> list[{view, iou}]`: when the reference angle is unknown, render
 silhouettes at 64 px for azimuth 0..345 step 15 and elevation {0, 15, 30, 45, 60} plus `top`,
@@ -1136,6 +1155,8 @@ azimuth a and −a give mirror images of symmetric objects).
    names; export `.glb`.
 6. `sightline structure <asset>`: fix the regions whose class disagrees, add the missing lights,
    split the parts the picture divides.
+7. `sightline fit <asset> --out ...`: let the fitter refine the numbers within a centimetre or two;
+   read `CEILING` in `match` to know how far the pictures themselves allow.
 
 ### 12.4 Picture structure (`structure.py`)
 
@@ -1152,7 +1173,14 @@ azimuth a and −a give mirror images of symmetric objects).
   image) and `class_agreement` (every shared pixel); `region_borders_on_part_boundaries` and
   `part_boundaries_on_borders` (2 px); `edges_on_part_boundaries` / `part_boundaries_on_edges` against
   every edge pixel (DETAIL). Picture classes from `even_lighting` (mirror-averaged colours when the
-  silhouette IoU >= 0.9; accents from the original); model classes from unlit material colours.
+  silhouette IoU >= 0.9; accents from the original). The picture's edges, regions and classes are
+  computed once per picture and res on its own grid (`_canonical_picture`: bbox + `CANON_MARGIN` = 8%,
+  long side `res` cells with the margin, box-resampled like `match`; cached by path, mtime, bbox and
+  mask) and sampled nearest at the model grid's pixel centres (`_Match.pic_rows` / `pic_cols`, picture
+  pixels the samples miss take the nearest label and class), so they do not depend on the model.
+  Model classes: `material_classes(asset, ids)` from unlit material colours, accents by chroma, the
+  dark/bright split in the middle of the widest lightness gap between the shown non-accent materials
+  (`MATERIAL_DARK_FIXED` when that gap is under `TWO_TONE_GAP`); it does not depend on pixel shares.
 - `trace_regions(asset, ids, index=0, res=512, depth=0.03, prefix=None, max_relief=None, conform=False, paint=False) -> {yaml, parts, report, skipped}`:
   `extrude` parts from region outlines (Moore tracing of the smoothed region, Douglas-Peucker to <= 14
   corners; regions under `TRACE_MIN_SMOOTH_PX` unsmoothed, a pixel box when the outline degenerates),
@@ -1181,6 +1209,51 @@ azimuth a and −a give mirror images of symmetric objects).
   F1 0.73 (painted 0.69), true elements recovered as their own region 0.41, region purity 0.73,
   clear-cut material class accuracy 0.75. On Blender renders of glTF sample models (`tools/blender_truth.py`):
   BrainStem edge F1 0.81, elements recovered 0.57; CesiumMilkTruck all 7 elements.
+
+### 12.5 Fitting (`fit.py`) — `fit_asset(path, root=None, *, res=512, steps=STEPS, parts=None, max_parts=40, max_move=None, checks=True, inner=True, log=None) -> dict`
+
+- Setup per reference: `_match` (alignment, soft picture cover, model coverage), moved into the
+  camera frame; picture share outside the frame counts as always missing; one full `march` for the
+  part map and surface ids (`Scene.surface_ids`, paints included). With `inner`: `compare_structure`
+  for the picture's classes, region borders and edges (camera frame) and `material_classes` per part.
+  The start state equals `match`'s soft IoU and `structure`'s strict class share and mean division
+  share (tested).
+- Score per view: `(IoU + classes + divisions) / 3` with `inner` (`_View.inner` counts like
+  `compare_structure`: classes over every pixel inside both outlines, divisions the mean of
+  `region_borders_on_part_boundaries` and `part_boundaries_on_borders`), else the IoU.
+- Numbers (`entry_params`): only keys the entry spells out: `at`/`offset` (kind move), `size`,
+  `radius`, `height`, `depth`, `top_radius`, `thickness` (size, >= `MIN_SIZE`), `round` (>= 0),
+  `rotate` (angle, `DEG_PER_M` = 250 degrees per meter of step), extrude `points`/`side` width and
+  height (scale about the outline's box centre, the factor stepped by step / half extent). Paint
+  entries have none. Each number stays within `max_move` (default `MAX_MOVE` = 0.015 m) of its start.
+- Trial: the entry edited in a shallow copy of the parsed data, `asset_from_data`; changed parts =
+  every scene part whose shape, op, position, matrix, half extents or params differ (so `on:`
+  attachments and mirror twins come along); their blend groups' boxes (or a cut's own box), old and
+  new, projected and grown by `REACH_PX` = 3; per view `march` + `_model_coverage` on a sub-camera
+  (`fixed_camera` at the window centre, same mpp and near) grown by `BORDER_PX` = 3 more, of which
+  only the inner rectangle is pasted. Equal to a full render, pixel for pixel (tested).
+- Accept when the mean score rises by more than `MIN_GAIN` = 2e-5 and, with `inner`, every view's
+  score stays at or above its start minus `FLOOR_TOL` = 5e-4 (division shares move by whole border
+  pixels, so a per-step rule would refuse nearly every move); without, no view falls by more than
+  `VIEW_TOL` = 5e-5 in the step. `symmetry_axes` (the asset's `symmetric` checks) and `frozen_params`
+  keep a centred, unmirrored entry's 0 across the plane and its turns about the other two axes.
+  Per round (one per step, default 4, 2, 1 mm) and entry, each number tries +step,
+  then -step, repeating a direction up to `MAX_REPEAT` = 6 times while it helps. Entries per round:
+  `parts`, else the `max_parts` with the most outline error next to them (`attribute`: pixels where
+  picture and model shares differ by >= `ERR_MIN` = 0.25; extra to the part shown, missing to the
+  nearest part shown; >= `MIN_ERR_PX`).
+- Checks (`_keep_checks`): `inspect_asset` + `run_checks` before and after; when `connected` newly
+  fails, the moved entries of the floating pieces are put back (up to 3 times); `checks` in the
+  report holds `before` (failing lines), `new_failures`, `reverted`, `count`.
+- Output: `edit_yaml(text, edits)` replaces values in place by their YAML node spans (lists of
+  numbers number by number), so comments and layout stay; `("asset",)` renames. The report holds
+  per view `iou_before` / `iou_after` (`match_asset` with `ceiling=False`), `iou_start` /
+  `iou_fitted` and `score_start` / `score_fitted` (the fitter's fixed placement), with `inner`
+  `structure_before` / `structure_after` (`compare_structure`'s class and division shares), `rounds`,
+  `changes` (part, entry, key, param, from, to), `gains` (mean score each entry added), `symmetry`
+  (axes, kept entries), `checks`, `trials`, `seconds` and `text`.
+- CLI: dry run by default; `--write` rewrites the asset file, `--out` writes a copy (asset name =
+  file stem); with new check failures neither writes without `--force` and the exit code is 1.
 
 ## 13. Import (`importer.py`)
 

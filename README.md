@@ -159,10 +159,24 @@ ciała. Robot doszedł tak z boku od IoU 0,76 do 0,89–0,90, a przód został n
 bryły: powierzchnia innych części w jej obrysie dostaje jej materiał (strefa koloru, naklejka, linia
 podziału). Obrys i wymiary się nie zmieniają, a eksport do .glb dzieli siatkę na materiały.
 `sightline structure robot --index I --trace fix --paint --conform` sam maluje tylko te miejsca,
-gdzie kolor modelu różni się od obrazka I. Robot doszedł tak do 94–98% zgodności materiałów we
-wszystkich czterech widokach, a obrys po poprawkach kształtu do IoU 0,92–0,94
-(`out/robot/views4_r21.png`). `sightline render robot --light view` oświetla tył i boki tak jak
-przód, jak na arkuszu z konceptem.
+gdzie kolor modelu różni się od obrazka I. `sightline render robot --light view` oświetla tył i boki
+tak jak przód, jak na arkuszu z konceptem.
+
+**Sufit i dopasowanie.** `match` porównuje też obrazki z przeciwnych stron (przód z odbitym tyłem,
+lewy bok z odbitym prawym), bo obrys każdej bryły widziany z przeciwnej strony jest lustrzanym
+odbiciem. Linia `CEILING` mówi, ile w ogóle da się osiągnąć: przód i tył robota zgadzają się na
+0,96, boki tylko na 0,91, więc żaden model nie przekroczy średnio 0,95 z boku. Tam rysunki są ze
+sobą sprzeczne i to pytanie do projektanta. `sightline fit robot --out ...` sam przesuwa liczby
+części leżących przy błędach (położenie, wymiary, obrót, szerokość obrysów) krokami 4, 2 i 1 mm.
+Krok zostaje tylko wtedy, gdy rośnie średnia z obrysu, materiałów i podziałów, a żaden widok nie
+spada poniżej startu. Części na osi symetrii nie przesuwają się w bok, a wynik trafia do pliku
+z zachowaniem komentarzy, po sprawdzeniu, że kontrole dalej przechodzą. Przy okazji `structure`
+czyta obrazek na własnej siatce, a nie na siatce modelu, więc odczyt nie zmienia się razem z
+modelem. Wcześniej jeden wiersz różnicy w kadrze potrafił przesunąć wynik materiałów o kilka
+punktów, a liczby rundy 21 (94–98%) były przez to zawyżone; na stabilnym odczycie wynosiły
+94/91/93/90%. Po dopasowaniu i nowym przejściu kolorów robot ma IoU 0,93/0,93/0,93/0,94,
+materiały 97/98/97/97% i podziały 97/85/88/91% (przód, tył, prawy, lewy;
+`out/robot/views4_r22.png`).
 
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z

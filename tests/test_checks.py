@@ -280,7 +280,8 @@ def fake_reference(monkeypatch):
     calls = []
     module = types.ModuleType("sightline.reference")
 
-    def match_asset(asset, index=0, res=256):
+    def match_asset(asset, index=0, res=256, ceiling=True):
+        assert ceiling is False  # checks never pay for the picture-agreement ceiling
         calls.append(index if res == 256 else (index, res))
         return {"iou": module.iou, "missing": module.missing}
 

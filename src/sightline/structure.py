@@ -144,6 +144,8 @@ def edges(rgb: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, di
     weak = keep & inner & (mag >= lo)
     strong = weak & (mag >= hi)
     labels, sizes = ref_mod.label_components(_dilate(weak) & inner)  # 8-ish connectivity via dilation
+    if sizes.size == 0:  # a flat picture: nothing inside the outline is an edge
+        return np.zeros_like(mask), mag, {"low": round(lo, 2), "high": round(hi, 2), "share": 0.0}
     hit = np.unique(labels[strong & (labels >= 0)])
     good = np.zeros(sizes.size, dtype=bool)
     good[hit] = True
@@ -808,6 +810,107 @@ def _grid_coords(asset, view: str, res: int, model_grid: np.ndarray):
     return h_of, v_of, mpp, names
 
 
+CANON_MARGIN = 0.08  # the picture's own analysis grid: its object's bbox plus this share on each side
+_CANON_CACHE: dict = {}
+_CANON_CACHE_MAX = 16
+
+
+def _canonical_picture(m, res: int, background) -> dict:
+    """Edges, regions and classes of the reference picture on a grid of its own (its object's bbox plus
+    CANON_MARGIN, the longer side `res` * (1 - 2 * CANON_MARGIN) cells), so they do not depend on the model:
+    on the model-aligned grid a 1-row change of the crop could flip a large joined region's class.
+    Cached per picture and res."""
+    ref = m.picture
+    try:
+        stamp = pathlib.Path(ref.path).stat().st_mtime_ns
+    except OSError:
+        stamp = None
+    key = (str(ref.path), stamp, ref.rgb.shape, tuple(ref.bbox), int(ref.mask.sum()), res,
+           tuple(np.round(np.asarray(background, dtype=float), 4)))
+    hit = _CANON_CACHE.get(key)
+    if hit is not None and stamp is not None:
+        return hit
+    x0, y0, x1, y1 = ref.bbox
+    span = float(max(x1 - x0, y1 - y0))
+    q = span * (1.0 + 2.0 * CANON_MARGIN) / res  # picture pixels per canonical pixel
+    pad = CANON_MARGIN * span
+    nx = max(8, math.ceil((x1 - x0 + 2 * pad) / q))
+    ny = max(8, math.ceil((y1 - y0 + 2 * pad) / q))
+    xe = (x0 - pad) + np.arange(nx + 1) * q
+    ye = (y0 - pad) + np.arange(ny + 1) * q
+    cover = ref_mod._box_cover(ref_mod._sat(ref.mask.astype(np.float32)), ye, xe)
+    rgb, inside = ref_mod._box_color(ref_mod._sat(ref.rgb), ye, xe)
+    bg = np.asarray(background, dtype=np.float32) * 255.0
+    if ref.alpha is not None:
+        rgb = np.where((cover > 0)[..., None], rgb, bg)
+    rgb = np.where((inside > 0.5)[..., None], rgb, bg).astype(np.float32)
+    mask = cover >= 0.5
+    edge, mag, efacts = edges(rgb, mask)
+    evened = even_lighting(rgb, mask)
+    labels, cls, _, rfacts = regions(rgb, mask, edge, mag, class_rgb=evened)
+    rfacts["lighting_evened"] = evened is not None
+    out = {"x0": float(xe[0]), "y0": float(ye[0]), "q": q, "edge": edge, "labels": labels, "cls": cls,
+           "efacts": efacts, "rfacts": rfacts}
+    if len(_CANON_CACHE) >= _CANON_CACHE_MAX:
+        _CANON_CACHE.pop(next(iter(_CANON_CACHE)))
+    _CANON_CACHE[key] = out
+    return out
+
+
+def _from_canonical(canon: dict, m, R_: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The canonical edges, labels and classes sampled (nearest) at the model grid's pixel centres; picture
+    pixels the samples miss take the nearest label and class."""
+    shape = canon["labels"].shape
+    ii = np.floor((m.pic_rows - canon["y0"]) / canon["q"]).astype(np.int64)
+    jj = np.floor((m.pic_cols - canon["x0"]) / canon["q"]).astype(np.int64)
+    ok_i = (ii >= 0) & (ii < shape[0])
+    ok_j = (jj >= 0) & (jj < shape[1])
+    ii, jj = np.clip(ii, 0, shape[0] - 1), np.clip(jj, 0, shape[1] - 1)
+    valid = ok_i[:, None] & ok_j[None, :]
+
+    def take(a, fill):
+        out = a[ii[:, None], jj[None, :]]
+        return np.where(valid, out, fill)
+
+    edge = take(canon["edge"], False) & R_
+    labels = take(canon["labels"], -1)
+    labels[~R_] = -1
+    labels = ref_mod._nearest_labels(labels, R_)
+    labels[~R_] = -1
+    cls = take(canon["cls"], -1).astype(np.int16)
+    cls[~R_] = -1
+    cls = ref_mod._nearest_labels(cls.astype(np.int32), R_)
+    cls[~R_] = -1
+    return edge, labels.astype(np.int32), cls.astype(np.int8)
+
+
+def material_classes(asset, ids: np.ndarray) -> np.ndarray:
+    """Class per part index (+ a -1 slot at the end) for the model: 0 dark, 1 bright, 2 accent.
+
+    Accents by chroma as in the picture; the dark/bright split sits in the middle of the widest gap
+    between the lightness of the non-accent materials that `ids` shows (MATERIAL_DARK_FIXED when that gap
+    is under TWO_TONE_GAP: a one-toned model). It depends on which materials show, not on how many
+    pixels each covers, so moving parts does not move it.
+    """
+    parts = asset.scene().parts
+    labs = np.zeros((len(parts), 3), dtype=np.float32)
+    for i, p in enumerate(parts):
+        rgb = asset.style.material(p.material).color if p.material else (0.5, 0.5, 0.5)
+        labs[i] = ref_mod.srgb_to_lab(np.clip(np.asarray(rgb, np.float32).reshape(1, 1, 3), 0, 1)).reshape(3)
+    accent = (np.hypot(labs[:, 1], labs[:, 2]) >= ACCENT_C) & (labs[:, 0] >= 25)
+    shown = np.unique(ids[ids >= 0]).astype(np.int64)
+    levels = np.unique(np.round(labs[shown[~accent[shown]], 0], 3)) if shown.size else np.zeros(0)
+    t = MATERIAL_DARK_FIXED
+    if levels.size >= 2:
+        gaps = np.diff(levels)
+        g = int(np.argmax(gaps))
+        if gaps[g] >= TWO_TONE_GAP:
+            t = float(levels[g] + levels[g + 1]) / 2.0
+    out = np.where(labs[:, 0] < t, 0, 1).astype(np.int8)
+    out[accent] = 2
+    return np.concatenate([out, np.array([-1], dtype=np.int8)])
+
+
 def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = None) -> dict:
     """How the model's parts and materials line up with the divisions inside its reference picture."""
     if isinstance(res, bool) or not isinstance(res, int) or not 16 <= res <= 4096:
@@ -817,22 +920,16 @@ def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = 
     m = ref_mod._match(asset, index, res, view)
     pic = np.clip(m.ref_rgb, 0.0, 1.0).astype(np.float32) * 255.0
     R_, M_ = m.ref, m.model
-    edge, mag, efacts = edges(pic, R_)
-    evened = even_lighting(pic, R_)
-    labels, cls, lab, rfacts = regions(pic, R_, edge, mag, class_rgb=evened)
-    rfacts["lighting_evened"] = evened is not None
+    canon = _canonical_picture(m, res, asset.style.background)
+    edge, labels, cls = _from_canonical(canon, m, R_)
+    efacts, rfacts = dict(canon["efacts"]), dict(canon["rfacts"])
+    lab = ref_mod.srgb_to_lab(pic / 255.0).astype(np.float32)
     h_of, v_of, mpp, axes = _grid_coords(asset, view, res, M_)
     regs = describe_regions(labels, cls, lab, pic, edge, h_of, v_of)
-    # model classes from its flat-lit render, split by its own Otsu (both images are lit)
-    # the model's classes come from its materials' own colours: the picture's lighting is not the style's
+    # the model's classes come from its materials' own colours (the picture's lighting is not the style's)
     part = m.part
-    parts_all = asset.scene().parts
-    base = np.zeros(m.lambert.shape, dtype=np.float32)
-    for pi in np.unique(part[part >= 0]):
-        mat = parts_all[int(pi)].material
-        base[part == pi] = asset.style.material(mat).color if mat else (0.5, 0.5, 0.5)
-    mlab = ref_mod.srgb_to_lab(np.clip(base, 0, 1)).astype(np.float32)
-    mcls, _ = _classes(mlab, M_, fixed=MATERIAL_DARK_FIXED)
+    mcls = material_classes(asset, part)[np.where(part >= 0, part, -1)]
+    mcls[~M_] = -1
     parts = asset.scene().parts
     both = R_ & M_
     agree = (cls[both] == mcls[both]).mean() if both.any() else 0.0

@@ -1049,6 +1049,13 @@ class _Match:
     model: np.ndarray  # (Hg, Wg) bool
     part: np.ndarray  # (Hg, Wg) int32: who colours each pixel, the solid or a paint over it (op: paint)
     lambert: np.ndarray  # (Hg, Wg, 3) 0..1
+    cover: np.ndarray | None = None  # (Hg, Wg) 0..1 the picture's share of each grid pixel (soft)
+    coverage: np.ndarray | None = None  # (Hg, Wg) 0..1 the model's share of each grid pixel (soft)
+    camera: Camera | None = None  # the model camera; its pixel (0, 0) is grid pixel `origin` = (row, col)
+    origin: tuple[int, int] = (0, 0)
+    picture: object = None  # the analysed reference (_Ref: rgb, mask, bbox at the analysis resolution)
+    pic_rows: np.ndarray | None = None  # (Hg,) picture row (analysis pixels) at each grid row's centre
+    pic_cols: np.ndarray | None = None  # (Wg,) picture column at each grid column's centre
 
 
 def _model_coverage(scene, cam: Camera, hit: np.ndarray) -> np.ndarray:
@@ -1237,7 +1244,9 @@ def _match(asset, index: int, res: int, view: str | None) -> _Match:
     align = {"bottom": align_on, "base": round(c_v + (H / 2.0 - mbot) * mpp, 2), "below_ground": below}
     report = _match_report(asset, index, spec, view, ref, refm, model, mc, part, lam, rgb, cover, mpp, h_of, v_of, hax,
                            vax, h_name, mode, k, ratio, shift, res, sizes, align)
-    return _Match(report, rgb, refm, model, surf, lam)
+    pic_rows = ((y_edges[:-1] + y_edges[1:]) / 2.0)[crop[0]]
+    pic_cols = ((x_edges[:-1] + x_edges[1:]) / 2.0)[crop[1]]
+    return _Match(report, rgb, refm, model, surf, lam, cover, mc, cam, (pt, pl), ref, pic_rows, pic_cols)
 
 
 def _soft_fit(cover: np.ndarray, mc: np.ndarray) -> tuple[float, float, float]:
@@ -1251,6 +1260,97 @@ def _soft_fit(cover: np.ndarray, mc: np.ndarray) -> tuple[float, float, float]:
     inter = float(np.minimum(cover, mc).sum())
     iou = inter / max(1e-9, r_sum + m_sum - inter)
     return iou, (r_sum - inter) / max(1e-9, r_sum), (m_sum - inter) / max(1e-9, m_sum)
+
+
+def opposite_view(view: str) -> str | None:
+    """The view from the other side (front <-> back, left <-> right, orbit az <-> az + 180 at -el), else None."""
+    named = {"front": "back", "back": "front", "left": "right", "right": "left"}
+    if view in named:
+        return named[view]
+    orbit = parse_orbit(view) if view.startswith("orbit:") else None
+    if orbit is None:
+        return None
+    az, el = orbit
+    return orbit_view((az + 180.0) % 360.0, -el)
+
+
+def _same_view(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    pa = parse_orbit(a) if a.startswith("orbit:") else None
+    pb = parse_orbit(b) if b.startswith("orbit:") else None
+    return pa is not None and pb is not None and abs((pa[0] - pb[0] + 180.0) % 360.0 - 180.0) < 1e-6 and abs(pa[1] - pb[1]) < 1e-6
+
+
+def picture_agreement(asset, index: int, mpp: float) -> dict | None:
+    """How far reference `index` agrees with the reference from the opposite side, mirrored; None if there is none.
+
+    Orthographic silhouettes of any object seen from opposite sides are mirror images, so this is a
+    ceiling for every model: by the triangle inequality of the Jaccard distance (1 - IoU), the two
+    views' IoUs cannot average more than (1 + agreement) / 2. Both pictures stand on the ground at
+    their given heights (or the same height when either has none), on a grid of `mpp` meters per pixel,
+    the other one shifted sideways to its best soft IoU as `match` shifts each picture.
+    """
+    spec = _reference_spec(asset, index)
+    other_view = opposite_view(spec.view)
+    if other_view is None:
+        return None
+    j = next((k for k, r in enumerate(asset.references) if k != index and _same_view(r.view, other_view)), None)
+    if j is None:
+        return None
+    pics = []
+    for k in (index, j):
+        s = asset.references[k]
+        mask = None if str(s.mask) == "auto" else s.mask
+        ref = _analyze(s.image, s.view, s.height, mask, asset.style, asset.root, None)
+        x0, y0, x1, y1 = ref.bbox
+        pics.append((ref, s.height, (x0 + x1) / 2.0, float(y1), float(y1 - y0), float(x1 - x0)))
+    (ra, ha, cxa, ba, hpa, wpa), (rb, hb, cxb, bb, hpb, wpb) = pics
+    if ha is None or hb is None:  # no metric height: the two pictures at one (the first one's) height
+        ha = hb = 1.0
+    sa, sb = ha / hpa, hb / hpb  # meters per picture pixel
+    shift_max = 0.25 * max(wpa * sa, wpb * sb)
+    half = max(wpa * sa, wpb * sb) / 2.0 + shift_max + 2 * mpp
+    ncol = 2 * math.ceil(half / mpp)
+    top = max(ha, hb) + 2 * mpp
+    nrow = math.ceil(top / mpp)
+    x_edges = (np.arange(ncol + 1) - ncol / 2) * mpp  # symmetric about x = 0: a column flip mirrors x -> -x
+    y_edges = top - np.arange(nrow + 1) * mpp  # meters above the ground, top row first
+    sat_a, sat_b = _sat(ra.mask.astype(np.float32)), _sat(rb.mask.astype(np.float32))
+    cov_a = _box_cover(sat_a, ba - y_edges / sa, cxa + x_edges / sa)
+
+    def cov_b(shift: float) -> np.ndarray:  # the other picture mirrored, then moved right by `shift` meters
+        xb = -(x_edges[::-1] - shift)
+        return _box_cover(sat_b, bb - y_edges / sb, cxb + xb / sb)[:, ::-1]
+
+    best = None
+    steps = math.ceil(shift_max / mpp)
+    for s in sorted(range(-steps, steps + 1), key=lambda v: (abs(v), v)):
+        iou = _soft_fit(cov_a, cov_b(s * mpp))[0]
+        if best is None or iou > best[0] + 1e-12:
+            best = (iou, s * mpp)
+    for frac in (-0.5, -0.25, 0.25, 0.5):
+        s = best[1] + frac * mpp
+        iou = _soft_fit(cov_a, cov_b(s))[0]
+        if iou > best[0] + 1e-12:
+            best = (iou, s)
+    iou, shift = best
+    a, b = cov_a >= 0.5, cov_b(shift) >= 0.5
+    inter = int((a & b).sum())
+    thick = int((a & ~_dilate(b)).sum() + (b & ~_dilate(a)).sum())
+    return {"other": j, "view": asset.references[j].view, "image": _label(asset.references[j].image, asset.root),
+            "iou": round(float(iou), 4), "within_1px": round(inter / max(1, inter + thick), 4),
+            "pair_mean_max": round((1.0 + float(iou)) / 2.0, 4), "shift": round(float(shift), 4)}
+
+
+def _label(path, root) -> str:
+    path = pathlib.Path(path)
+    if root is not None:
+        try:
+            return path.resolve().relative_to(pathlib.Path(root).resolve()).as_posix()
+        except ValueError:
+            pass
+    return path.as_posix()
 
 
 def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover, mpp, h_of, v_of, hax, vax, h_name,
@@ -1473,7 +1573,8 @@ def _match_report(asset, index, spec, view, ref, R, M, mc, part, lam, rgb, cover
     }
 
 
-def match_asset(asset, index: int = 0, res: int = 256, out_dir=None, *, view: str | None = None) -> dict:
+def match_asset(asset, index: int = 0, res: int = 256, out_dir=None, *, view: str | None = None,
+                ceiling: bool = True) -> dict:
     """Compare the model with its reference picture `index` (SPEC 12.2).
 
     Renders the model from the reference view on the model camera's pixel grid, scales the picture
@@ -1483,13 +1584,17 @@ def match_asset(asset, index: int = 0, res: int = 256, out_dir=None, *, view: st
     colours and a diff grid. Silhouettes from march() are dilated by up to half a pixel per edge,
     so widths carry about +-1 grid px and regions thinner than 1.5 px are ignored as edge noise.
     With `out_dir`, writes `match_<index>.png` there. `view` overrides the reference's view (e.g.
-    the best one from `fit_view`).
+    the best one from `fit_view`). With `ceiling` and a reference from the opposite side, `ceiling`
+    holds `picture_agreement`: how far the two pictures agree, the most any model can reach.
     """
     if isinstance(res, bool) or not isinstance(res, (int, np.integer)) or not 16 <= res <= 4096:
         raise SightlineError(f"res must be an integer from 16 to 4096, got {res!r}",
                              hint="res is the pixel count of the model render's long side; the default is 256")
     res = int(res)
     m = _match(asset, index, res, view)
+    m.report["ceiling"] = None
+    if ceiling and (view is None or view == _reference_spec(asset, index).view):
+        m.report["ceiling"] = picture_agreement(asset, index, m.camera.mpp)
     if out_dir is not None:
         out = pathlib.Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -1517,7 +1622,12 @@ def format_match(report: dict) -> str:
     lines.append(size_line)
     lines.append(f"FIT     IoU {r['iou']:.2f}   missing {_pct(r['missing'])} (reference not covered)   "
                  f"extra {_pct(r['extra'])} (model outside the reference)")
-    lines.append(f"ASPECT  height/width reference {r['aspect']['reference']:.2f} vs model {r['aspect']['model']:.2f}")
+    c = r.get("ceiling")
+    if c:
+        lines.append(f"CEILING the {c['view']} picture (reference[{c['other']}]) mirrored agrees with this one on IoU "
+                     f"{c['iou']:.2f} ({_pct(c['within_1px'])} within 1 px): no model can average more than "
+                     f"{c['pair_mean_max']:.2f} over the two views")
+    lines.append(f"ASPECT height/width reference {r['aspect']['reference']:.2f} vs model {r['aspect']['model']:.2f}")
     al = r["align"]
     on = {"ground": "on the ground line (y = 0.00)", "bottom": f"on the model's bottom (y = {al.get('base', 0):.2f})"}
     bottom = on.get(al.get("bottom"), f"on the model silhouette's bottom ({v_name} {al.get('base', 0):.2f})")

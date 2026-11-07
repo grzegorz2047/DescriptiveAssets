@@ -159,9 +159,26 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      --conform` prints `op: paint` parts for only the patches whose class differs from picture I. They
      colour the surface under their outline and change no outline, so run it for each reference in
      turn (sides, back, front), pasting each result before the next. The robot's area classes went
-     from 93 / 83 / 76 / 76% (front, back, right, left) to 96 / 98 / 94 / 94% this way.
+     from 93 / 83 / 76 / 76% (front, back, right, left) to 96 / 98 / 94 / 94% this way, as `structure`
+     read the picture then (on the model's grid, so the reading moved with the model); read on the
+     picture's own grid, as now, that round stood at 94 / 91 / 93 / 90%.
    - Look at back and side renders with `sightline render <asset> --light view`: with the style's
      fixed light a back view shows ambient light only and every material looks black.
+   - Know the ceiling before chasing a figure: with pictures from opposite sides `match` prints
+     `CEILING`, how far the two drawings agree mirrored. The robot's front and back agree on 0.96
+     (100% within 1 px: only the line work differs), its right and left on 0.91 (96% within 1 px:
+     the drawings disagree at the toe, the lower back, the back of the chest and the face), so no
+     model can average more than 0.95 over the two sides. Ask the designer which drawing is right
+     where they disagree instead of splitting the difference.
+   - When the shapes are right, let `sightline fit <asset> --out out/<asset>_fit.yaml` refine the
+     numbers (at, size, radius, rotate, outline widths) within 1.5 cm, then read its VIEWS lines and
+     the diff and copy it over the asset. It keeps a step only if the mean of outline IoU, classes and
+     divisions rises and no view ends below its start, so it does not trade a panel line for an
+     outline pixel; `--outline-only` does, and moved plates then leave their painted zones. Run the
+     `--trace fix --paint` pass per view after it, not before. The robot: fit 0.918 / 0.916 / 0.925 /
+     0.935 -> 0.928 / 0.930 / 0.927 / 0.938 IoU with every class and division share up, then the
+     paint pass took classes to 97 / 98 / 97 / 97% (front, back, right, left). Outline-only reached
+     0.950 / 0.946 but hid a back light behind the chest, and fit refused to write it.
    - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
      into `refs/` (save as RGBA PNG), or the background turns black.
    - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and
