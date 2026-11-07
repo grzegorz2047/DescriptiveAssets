@@ -147,6 +147,14 @@ wskazane elementy obrazka i wypisuje gotowe części w metrach, ustawione na pow
 Robot z przykładów doszedł tak od 69% do 93% zgodności materiałów i od 43% do 91% zgodności podziałów
 z konceptem (`out/robot/increments_all.png` pokazuje każdy krok).
 
+**Kilka widoków.** Do zasobu można dać kilka obrazków: przód, tył, lewy i prawy bok (lista
+`reference:`). `match --index` i `structure --index` porównują model z każdym z nich. Bryła
+`extrude` przyjmuje też obrys z boku (`side:`), więc część buduje się jak z rzutów: obrys z przodu
+przecina się z obrysem z boku (łydka, która puchnie z tyłu i zwęża się ku kostce, płyta piersi
+wygięta do obojczyka). `--trace ... --conform` obrysowuje płyty także z tyłu i z boku, wygięte wzdłuż
+ciała. Robot doszedł tak z boku od IoU 0,76 do 0,89–0,90, a przód został na 0,90
+(`out/robot/views4_r20.png` pokazuje koncept i każdą rundę w czterech widokach).
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z

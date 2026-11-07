@@ -178,9 +178,19 @@ def polygon2(x, y, verts) -> np.ndarray:
     return np.where(inside, -d, d).astype(np.float32).reshape(shape)
 
 
-def extrude(x, y, z, verts, hz: float, r: float = 0.0):
-    """A 2D polygon in the XY plane extruded over |z| <= hz, edges rounded by r (exact for r = 0)."""
+def extrude(x, y, z, verts, hz: float, r: float = 0.0, side=None):
+    """A 2D polygon in the XY plane extruded over |z| <= hz, edges rounded by r (exact for r = 0).
+
+    With `side` (a polygon in the ZY plane, the outline seen from the side) the shape is the
+    intersection of the two extrusions, the front outline along Z and the side outline along X (a
+    bound, exact outside the shared edges); `hz` is then unused.
+    """
     d2 = polygon2(x, y, verts)
+    if side is not None:
+        ds = polygon2(z, y, side)
+        if r > 0.0:
+            return _extrude(d2 + F32(r), ds + F32(r)) - F32(r)
+        return _extrude(d2, ds)
     if r > 0.0:
         return _extrude(d2 + F32(r), np.abs(z) - F32(hz - r)) - F32(r)
     return _extrude(d2, np.abs(z) - F32(hz))
@@ -216,7 +226,7 @@ def primitive(shape: str, params: dict, x, y, z):
         hx, hy, hz = params["size"]
         return wedge(x, y, z, hx * 0.5, hy * 0.5, hz * 0.5)
     if shape == "extrude":
-        return extrude(x, y, z, params["points"], params["depth"] * 0.5, params["round"])
+        return extrude(x, y, z, params["points"], params["depth"] * 0.5, params["round"], params.get("side"))
     raise ValueError(f"unknown shape {shape!r}")
 
 

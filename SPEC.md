@@ -185,7 +185,7 @@ checks:                        # optional, see section 7
 | `capsule` | `radius`, `height` (total, ≥ 2r) | 2r, h, 2r |
 | `torus` | `radius` (ring center radius), `thickness` (tube radius); ring lies in local XZ | 2(R+t), 2t, 2(R+t) |
 | `wedge` | `size: [w,h,d]` — triangular prism along X: full height at the back face (−Z), slope down to 0 at the front edge (+Z) | w, h, d |
-| `extrude` | `points: [[x, y], ...]` (3..64, no crossings), `depth`, `round` | outline w, outline h, depth |
+| `extrude` | `points: [[x, y], ...]` (3..64, no crossings), `depth` or `side: [[z, y], ...]` (the side outline; the shape is the intersection of both extrusions), `round` | outline w, shared h, depth |
 
 Polygon `sides`: a regular n-gon prism (or pyramid/frustum for `cone`) with a **flat face** toward
 +Z, so a door cut into the front of an octagonal tower sits on a face. `radius` is the
@@ -914,7 +914,7 @@ sightline export <asset> [--format glb|obj] [--merged] [--bake-colors] [--max-ce
                  [--quality full|high|medium|low] [--max-tris N] [--out PATH]
 sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit|flat] [--json]   # analyze a reference alone
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
-sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--out DIR] [--json]
+sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--conform] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
 sightline styles [name]                                   # styles, materials, palettes
@@ -1139,10 +1139,22 @@ azimuth a and −a give mirror images of symmetric objects).
   `part_boundaries_on_borders` (2 px); `edges_on_part_boundaries` / `part_boundaries_on_edges` against
   every edge pixel (DETAIL). Picture classes from `even_lighting` (mirror-averaged colours when the
   silhouette IoU >= 0.9; accents from the original); model classes from unlit material colours.
-- `trace_regions(asset, ids, index=0, res=512, depth=0.03, prefix="plate") -> {yaml, parts, report}`:
+- `trace_regions(asset, ids, index=0, res=512, depth=0.03, prefix="plate", max_relief=None, conform=False) -> {yaml, parts, report, skipped}`:
   `extrude` parts from region outlines (Moore tracing of the smoothed region, Douglas-Peucker to <= 14
-  corners), placed on the model's surface (75th/25th depth percentile for bright/dark regions), pairs
-  as one part with `mirror: x`; front references only.
+  corners; regions under `TRACE_MIN_SMOOTH_PX` unsmoothed, a pixel box when the outline degenerates),
+  placed on the model's surface (75th/25th percentile of the surface height toward the camera for
+  bright/dark regions), pairs as one part with `mirror: x`. Any level view (front, back, left, right):
+  the part is yawed so its local x/y/z run along the camera's right/up/toward-viewer axes; side views
+  give the camera-side part with `mirror: x`; names carry the view (`plate_back_r6`). `conform`: a
+  `side` outline whose front edge is a weighted quadratic fit of the region's per-row surface height
+  (+ depth − sink) and whose back edge is `depth` behind it. `max_relief` (m, flat plates only) skips
+  regions whose model surface varies more than that in height (5th..95th percentile): a flat inlay
+  would stand off a curved or sloped surface there (`skipped` lists them). Region ids are not stable
+  across model edits (the picture is resampled on the model-aligned grid).
+- `extrude` with `side`: SDF `_extrude(d_front + r, d_side + r) - r` with d_front the polygon distance
+  in XY and d_side in ZY (exact outside the shared edges, a bound elsewhere); local frame: x centred on
+  `points`, z on `side`, y on the shared heights; `depth` = the side outline's depth; AABB from the
+  box both outlines span.
 - Tuned with `tools/structure_bench.py`: renders of the example assets (clean, outlined, and
   blurred/noisy/JPEG) scored against the renderer's part map and depth. Means over 10 assets: edge
   F1 0.73 (painted 0.69), true elements recovered as their own region 0.41, region purity 0.73,

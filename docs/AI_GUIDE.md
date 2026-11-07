@@ -131,9 +131,23 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      --trace R12,R15` prints `extrude` parts with the regions' outlines, placed on your model's
      surface; paste them under `parts:`. Keep the body under the plates in the frame's dark material,
      so the silver comes from the traced plates exactly where the picture has it.
+   - A traced outline is flat. On limbs and other rounded parts extrude it through the part's whole depth
+     (a thigh: `depth: 0.17`, `round: 0.025`, centred on the leg) so it is a volume, not a sign in front of
+     it; trace the smaller divisions as 8 mm inlays only where the surface is flat
+     (`trace_regions(..., depth=0.008, max_relief=0.02)`). Look at the side and 3/4 views, not only the
+     front: the robot's legs read as flat boards until they were rebuilt this way.
    - `assets/robot.yaml` went this way from outline IoU 0.89 / area classes 69% / region borders 43%
      (v1, primitives only) to 0.91 / 93% / 91% (plates traced, body dark, outline fixed from the
      red/blue overlay of `match`). `out/robot/increments_all.png` shows every step.
+   - Ask for more views when the designer has them (back, left, right): a front picture says nothing
+     about depth. Add each as a `reference:` entry and run `match --index I` and `structure --index I`
+     per view. In a side view read the outline band by band (the reference's front and back per
+     height) and give rounded or tapering parts a `side` outline from it: thigh, calf, boot, chest
+     plate. Trace the back's and the flanks' plates from their own pictures with `--trace ...
+     --conform` (they bend along the body); keep the body under them dark as on the front. Region ids
+     move when the model changes: pick regions by class and place. The robot went from side IoU
+     0.76 / 0.77 to 0.89 / 0.90 and back classes 76% -> 83% this way, the front staying at 0.90 / 93%
+     (`out/robot/views4_r20.png`: concept and every round in four views).
    - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
      into `refs/` (save as RGBA PNG), or the background turns black.
    - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and

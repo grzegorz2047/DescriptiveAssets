@@ -187,7 +187,7 @@ Each shape has a local frame centered on its local bounding box, with Y as its m
 | `capsule` | `radius`, `height` (total, ≥ 2r) | 2r, h, 2r |
 | `torus` | `radius` (ring center), `thickness` (tube radius); the ring lies in local XZ | 2(R+t), 2t, 2(R+t) |
 | `wedge` | `size: [w, h, d]`: triangular prism along X, full height at the back (−Z), sloping to 0 at the front edge (+Z) | w, h, d |
-| `extrude` | `points: [[x, y], ...]` (3..64 corners of an outline in the XY plane, as seen from the front, in order, no crossing edges), `depth` (along Z), `round: r` (≤ depth/2) | outline width, outline height, depth |
+| `extrude` | `points: [[x, y], ...]` (3..64 corners of an outline in the XY plane, as seen from the front, in order, no crossing edges), `depth` (along Z) **or** `side: [[z, y], ...]` (the outline seen from the side, same y as `points`), `round: r` (≤ depth/2) | outline width, shared height, depth |
 
 - `sides: n` makes a regular n-gon with a **flat face toward +Z**; `radius` is the circumradius, so
   the flat face is at `radius · cos(180°/n)`. A door cut on `@[0, -1, 1]` of an 8-sided tower
@@ -198,6 +198,12 @@ Each shape has a local frame centered on its local bounding box, with Y as its m
 - `extrude` outlines are re-centred on their bounding box (only their shape counts; place them with
   `at`/`on` like any part). They are the way to angular plates, shields, blades and emblems:
   `sightline structure <asset> --trace R12,R15` writes them traced from the reference picture.
+- `side` turns an `extrude` into the shape both outlines allow: the front outline along Z intersected
+  with the side outline along X (z = front, +; y the same heights as `points`). It is how a part is
+  built from a front and a side picture: a calf that bulges at the back and narrows to the ankle, a
+  chest plate bending back to the collar bone, a boot with its toe and instep. Write both outlines in
+  world coordinates if you like: x is centred on `points`, z on `side`, y on the heights both share,
+  and `at` places that centre. `depth` then comes from the side outline (give one or the other).
 - The anchor box is the *bbox*, not the visible surface: a `sides: 3` prism's flat edge is at half
   the circumradius, so place it with an explicit `offset` (see `shield_tip` in `assets/knight.yaml`).
 
@@ -378,12 +384,22 @@ SPLITS     model parts that the picture divides into several elements (split the
 and writes `out/<asset>/structure_<i>.png` (picture regions that disagree | the model with its part
 boundaries | class agreement and shared / picture-only / model-only edges).
 
-`sightline structure <asset> --trace R12,R15 [--depth 0.03]` (or `--trace disagree`) prints `extrude`
-parts traced from those regions: the region's outline (smoothed by 2 px, simplified to at most 14
-corners) in meters, placed on the model's surface at that spot (bright regions stand `depth` out, sunk
-1 cm; dark ones only 4 mm, on the deeper surface, so lights and joints stay in front), the material the
-model already uses most for that class, and a left/right pair as one part with `mirror: x`. Front
-references only.
+`sightline structure <asset> --trace R12,R15 [--depth 0.03] [--conform]` (or `--trace disagree`) prints
+`extrude` parts traced from those regions: the region's outline (smoothed by 2 px, simplified to at
+most 14 corners; lights under 60 px keep their pixels) in meters, placed on the model's surface at
+that spot (bright regions stand `depth` out, sunk 1 cm; dark ones only 4 mm, on the deeper surface, so
+lights and joints stay in front), the material the model already uses most for that class, and a
+left/right pair as one part with `mirror: x`.
+
+- Any level view: `--index` picks the reference. Back and side parts are turned to face their camera
+  (`rotate: [0, 180, 0]`, `[0, ±90, 0]`); a side view gives the part on the camera's side with
+  `mirror: x` for the other one (remove it on an asymmetric asset).
+- `--conform` bends the plate along the model from top to bottom: it gets a `side` outline that
+  follows the surface (a weighted quadratic fit of its height row by row), so a plate on a rounded
+  back or chest hugs it instead of standing off as a flat board.
+- Region ids come from the picture resampled on the grid aligned with the model, so they can move
+  when the model changes. Run `sightline structure` again before tracing, and in scripts pick regions
+  by their class and place (`x`/`y` ranges in the report), not by a remembered id.
 
 The three classes suit mechanical designs (plates, frame, lights). On multi-coloured costumes (red
 cloth, gold trim, skin) large saturated areas count as accents and the agreement figure is low.
@@ -500,7 +516,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline export <asset> [--format glb\|obj] [--merged] [--bake-colors] [--max-cells N] [--quality full\|high\|medium\|low] [--max-tris N] [--out PATH]` | `out/<asset>/<asset>.glb` (or `.obj` + `.mtl`) and a mesh table with triangles before and after decimation |
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png` |
-| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
+| `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS] [--depth M] [--conform] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
 | `sightline styles [name]`, `sightline shapes` | materials and colors; shape, anchor and placement reference |

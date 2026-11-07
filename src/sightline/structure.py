@@ -1008,8 +1008,9 @@ def write_compare_png(rep: dict, path) -> pathlib.Path:
 # ----------------------------------------------------------------------------- tracing regions into parts
 
 TRACE_MAX_POINTS = 14
-TRACE_EPS_PX = 2.5
-TRACE_SMOOTH = 2  # closing then opening by this many px before tracing: pixel noise out of the outline  # Douglas-Peucker tolerance to start from (grows until the outline fits TRACE_MAX_POINTS)
+TRACE_EPS_PX = 2.5  # Douglas-Peucker tolerance to start from (grows until the outline fits TRACE_MAX_POINTS)
+TRACE_SMOOTH = 2  # closing then opening by this many px before tracing: pixel noise out of the outline
+TRACE_MIN_SMOOTH_PX = 60  # smaller regions (lights, decals) are traced without smoothing
 TRACE_SINK = 0.01  # a traced plate sinks this far into the surface it sits on (it must touch it)
 TRACE_FLUSH = 0.004  # a traced dark (recessed) region stands only this far out of the surface
 
@@ -1119,15 +1120,66 @@ def _class_materials(asset, rep) -> dict[str, str]:
     return out
 
 
-def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.03, prefix: str = "plate") -> dict:
-    """Extrude parts traced from the reference picture's regions (front view): outline in meters, placed on
-    the model's surface at that spot, material by the region's class. Returns {yaml, parts, report}."""
+def _view_frame(cam) -> tuple[np.ndarray, float]:
+    """Direction toward the viewer and the yaw (deg) that turns an extrude's local frame onto the view:
+    local x -> camera right, local y -> up, local z -> toward the viewer. Level views only."""
+    n = -np.asarray(cam.forward, dtype=np.float64)
+    if abs(float(cam.up[1])) < 0.999 or abs(float(n[1])) > 1e-6:
+        raise SightlineError(f"tracing needs a level view (front, back, left, right), this one is '{cam.view}'",
+                             hint="use a reference with view: front, back, left or right")
+    yaw = math.degrees(math.atan2(n[0], n[2]))
+    if yaw <= -179.999:
+        yaw = 180.0
+    a = math.radians(yaw)
+    if not np.allclose([math.cos(a), 0.0, -math.sin(a)], cam.right, atol=1e-6):
+        raise SightlineError(f"unexpected camera frame for view '{cam.view}'")
+    return n, yaw
+
+
+def _side_band(rows, s_front, s_back, v_of, mpp, eps_px: float = 1.0, max_points: int = 30) -> np.ndarray:
+    """Side outline [(s, v)] of a plate that follows the surface: the front edge down the rows, the back
+    edge up again, each simplified on its own (Douglas-Peucker on an open polyline)."""
+    v_top, v_bot = float(v_of(rows[0])), float(v_of(rows[-1] + 1.0))
+    v = v_of(rows + 0.5)
+    front = np.stack([np.r_[s_front[0], s_front, s_front[-1]], np.r_[v_top, v, v_bot]], axis=1)
+    back = np.stack([np.r_[s_back[0], s_back, s_back[-1]], np.r_[v_top, v, v_bot]], axis=1)
+
+    def dp(line, eps):
+        if len(line) <= 2:
+            return line
+        a, b = line[0], line[-1]
+        ab = b - a
+        L = float(np.hypot(*ab)) or 1e-12
+        d = np.abs(ab[0] * (line[:, 1] - a[1]) - ab[1] * (line[:, 0] - a[0])) / L
+        i = int(np.argmax(d))
+        if d[i] <= eps:
+            return np.array([a, b])
+        return np.vstack([dp(line[: i + 1], eps)[:-1], dp(line[i:], eps)])
+
+    eps = eps_px * mpp
+    while True:
+        f, b = dp(front, eps), dp(back, eps)
+        if len(f) + len(b) <= 2 * max_points:
+            break
+        eps *= 1.5
+    return np.vstack([f, b[::-1]])
+
+
+def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.03, prefix: str = "plate",
+                  max_relief: float | None = None, conform: bool = False) -> dict:
+    """Extrude parts traced from a reference picture's regions (front, back, left or right view): the
+    outline in meters, placed on the model's surface at that spot (turned to face the camera), material by
+    the region's class. `conform`: a side outline makes the plate follow the surface from top to bottom
+    instead of standing flat. Side views give one part on the camera's side with `mirror: x`.
+    Returns {yaml, parts, report, skipped}."""
     if not (isinstance(depth, (int, float)) and 0.002 <= depth <= 1.0):
         raise SightlineError(f"depth must be 0.002..1 m, got {depth!r}")
     rep = compare_structure(asset, index, res)
-    if rep["view"] != "front":
-        raise SightlineError(f"tracing works on front references, this one is '{rep['view']}'",
-                             hint="add a front picture as a reference, or place the parts by hand")
+    tr = rep["_trace"]
+    cam = tr["camera"]
+    n, yaw = _view_frame(cam)
+    right, up = np.asarray(cam.right, dtype=np.float64), np.asarray(cam.up, dtype=np.float64)
+    side_view = abs(n[0]) > 0.5
     regs = {r["id"]: r for r in rep["regions"]}
     want = []
     for key in ids:
@@ -1138,59 +1190,114 @@ def trace_regions(asset, ids, index: int = 0, res: int = 512, depth: float = 0.0
             want.append(key)
         else:
             raise SightlineError(f"no region {key} in the picture", hint=f"regions are R1..R{len(regs)}; run sightline structure first")
-    a, tr = rep["_arrays"], rep["_trace"]
+    a = rep["_arrays"]
     labels, vb, pl, pt = a["labels"], tr["vb"], tr["pl"], tr["pt"]
     h_of, v_of = tr["h_of"], tr["v_of"]
+    mpp = float(cam.mpp)
     mats = _class_materials(asset, rep)
-    point_z = vb.point[..., 2]
-    front_z = float(np.median(point_z[vb.hit])) if vb.hit.any() else 0.0
-    done, parts_out, lines = set(), [], []
+    s_map = vb.point.astype(np.float64) @ n  # height of the surface toward the viewer
+    front_s = float(np.median(s_map[vb.hit])) if vb.hit.any() else 0.0
+    view_tag = "" if rep["view"] == "front" else f"{rep['view']}_"
+    from .model import _self_intersects
+    done, parts_out, lines, skipped = set(), [], [], []
     for rid in want:
         if rid in done:
             continue
         r = regs[rid]
-        pair = r.get("pair")
-        mirror = bool(pair and pair in want)
-        if mirror and r["center"][0] > 0:  # write the -x one with mirror: x
+        pair = None if side_view else r.get("pair")
+        mirror = side_view or bool(pair and pair in want)
+        if pair and mirror and right[0] * r["center"][0] > 0:  # write the -x one with mirror: x
             r, rid = regs[pair], pair
         done.add(rid)
-        if mirror:
+        if pair and mirror:
             done.add(r["pair"])
-        mask = smooth_mask(labels == r["label"])
+        raw = labels == r["label"]
+        mask = smooth_mask(raw) if raw.sum() >= TRACE_MIN_SMOOTH_PX else raw  # small lights keep their pixels
         poly_px = simplify(outline(mask))
         if len(poly_px) < 3:
+            poly_px = simplify(outline(mask), eps=0.5)
+        if len(poly_px) < 3 and mask.any():  # a light a few pixels across: its pixel box
+            rr, cc = np.nonzero(mask)
+            poly_px = np.array([[cc.min(), rr.min()], [cc.max() + 1, rr.min()], [cc.max() + 1, rr.max() + 1],
+                                [cc.min(), rr.max() + 1]], dtype=np.float64) - 0.5
+        if len(poly_px) < 3:
             continue
-        xs_m = h_of(poly_px[:, 0] + 0.5)
-        ys_m = v_of(poly_px[:, 1] + 0.5)
-        pts = np.stack([xs_m, ys_m], axis=1)
-        from .model import _self_intersects
+        pts = np.stack([h_of(poly_px[:, 0] + 0.5), v_of(poly_px[:, 1] + 0.5)], axis=1)
         if _self_intersects(pts):  # fall back to the convex hull
             pts = _hull(pts)
-        cx, cy = (pts.min(axis=0) + pts.max(axis=0)) / 2.0
         rows, cols = np.nonzero(mask)
         vr, vc = rows - pt, cols - pl
         ok = (vr >= 0) & (vr < vb.hit.shape[0]) & (vc >= 0) & (vc < vb.hit.shape[1])
-        vr, vc = vr[ok], vc[ok]
+        rows, vr, vc = rows[ok], vr[ok], vc[ok]
         hit = vb.hit[vr, vc]
         cls = "accent" if r["class"].startswith("accent") else r["class"]
         q = 0.25 if cls == "dark" else 0.75  # a recessed region sits on the deeper surface it shows
-        zf = float(np.quantile(point_z[vr[hit], vc[hit]], q)) if hit.any() else front_z
-        if cls == "dark":  # frame and gaps are recessed: only TRACE_FLUSH proud, so lights and joints stay in front
-            cz = zf + TRACE_FLUSH - depth / 2.0
+        if max_relief is not None and not conform and hit.sum() >= 4:
+            ss = s_map[vr[hit], vc[hit]]
+            relief = float(np.quantile(ss, 0.95) - np.quantile(ss, 0.05))
+            if relief > max_relief:  # a flat plate would not lie on this curved or sloped surface
+                skipped.append((rid, round(relief, 3)))
+                continue
+        sf = float(np.quantile(s_map[vr[hit], vc[hit]], q)) if hit.any() else front_s
+
+        def lift(s):  # plate front from the surface: dark ones only TRACE_FLUSH proud, so lights stay in front
+            return s + TRACE_FLUSH if cls == "dark" else s + depth - min(TRACE_SINK, depth / 2.0)
+
+        side = None
+        if conform and hit.sum() >= 4:
+            urows = np.unique(rows)
+            per, wts = np.full(len(urows), np.nan), np.zeros(len(urows))
+            for k, row in enumerate(urows):
+                sel = (rows == row) & hit
+                if sel.any():
+                    per[k], wts[k] = np.quantile(s_map[vr[sel], vc[sel]], q), sel.sum()
+            good = ~np.isnan(per)
+            # a gently bent plate, not a staircase over the parts below it: a weighted fit of the
+            # surface's height down the region (quadratic, or a line / flat for short regions)
+            vv = v_of(urows + 0.5) - float(v_of(urows.mean() + 0.5))
+            deg = 2 if good.sum() >= 8 else (1 if good.sum() >= 3 else 0)
+            coef = np.polyfit(vv[good], per[good], deg, w=np.sqrt(wts[good]))
+            per = np.clip(np.polyval(coef, vv), per[good].min() - depth, per[good].max() + depth)
+            band = _side_band(urows.astype(np.float64), lift(per), lift(per) - depth, v_of, mpp)
+            if not _self_intersects(band):
+                side = band
+        lo_v, hi_v = pts[:, 1].min(), pts[:, 1].max()
+        if side is not None:
+            lo_v, hi_v = max(lo_v, side[:, 1].min()), min(hi_v, side[:, 1].max())
+            cs = (side[:, 0].min() + side[:, 0].max()) / 2.0
         else:
-            cz = zf + depth / 2.0 - min(TRACE_SINK, depth / 2.0)
-        name = f"{prefix}_{rid.lower()}" + ("_l" if mirror else "")
-        rel = pts - [cx, cy]
+            cs = lift(sf) - depth / 2.0
+        ch = (pts[:, 0].min() + pts[:, 0].max()) / 2.0
+        cv = (lo_v + hi_v) / 2.0
+        center = right * ch + up * cv + n * cs
+        if side_view and center[0] < 0:
+            suffix = "_l"
+        elif side_view or mirror:
+            suffix = "_r" if center[0] > 0 else "_l"
+        else:
+            suffix = ""
+        name = f"{prefix}_{view_tag}{rid.lower()}{suffix}"
+        rel = pts - [ch, cv]
         pts_txt = ", ".join(f"[{x:.3f}, {y:.3f}]" for x, y in rel)
-        lines += [f"  - name: {name}                 # traced from picture region {rid}"
-                  + (f" (pair {r['pair']})" if mirror else "") + f": {r['class']}, {r['relief']}",
-                  "    shape: extrude", f"    points: [{pts_txt}]", f"    depth: {depth:g}",
-                  f"    round: {min(0.004, depth / 4):g}", f"    material: {mats[cls]}",
-                  f"    at: [{cx:.3f}, {cy:.3f}, {cz:.3f}]"] + (["    mirror: x"] if mirror else [])
-        parts_out.append({"name": name, "region": rid, "points": rel.tolist(), "at": [cx, cy, cz],
-                          "material": mats[cls], "mirror": mirror})
+        lines += [f"  - name: {name}                 # traced from {rep['view']} picture region {rid}"
+                  + (f" (pair {r['pair']})" if pair and mirror else "") + f": {r['class']}, {r['relief']}",
+                  "    shape: extrude", f"    points: [{pts_txt}]"]
+        if side is not None:
+            side_rel = side - [cs, cv]
+            lines.append("    side: [" + ", ".join(f"[{z:.3f}, {y:.3f}]" for z, y in side_rel) + "]")
+        else:
+            lines.append(f"    depth: {depth:g}")
+        lines += [f"    round: {min(0.004, depth / 4):g}"]
+        if abs(yaw) > 1e-6:
+            lines.append(f"    rotate: [0, {yaw:g}, 0]")
+        lines += [f"    material: {mats[cls]}", f"    at: [{center[0]:.3f}, {center[1]:.3f}, {center[2]:.3f}]"]
+        if mirror:
+            lines.append("    mirror: x")
+        parts_out.append({"name": name, "region": rid, "points": rel.tolist(),
+                          "side": None if side is None else (side - [cs, cv]).tolist(), "rotate": [0, yaw, 0],
+                          "at": center.tolist(), "material": mats[cls], "mirror": mirror})
     yaml = "\n".join(lines) + ("\n" if lines else "")
-    return {"yaml": yaml, "parts": parts_out, "report": rep}
+    return {"yaml": yaml, "parts": parts_out, "report": rep, "skipped": skipped}
 
 
 def _hull(pts: np.ndarray) -> np.ndarray:

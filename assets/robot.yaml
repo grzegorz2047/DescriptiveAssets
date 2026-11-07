@@ -1,144 +1,270 @@
 asset: robot
 brief: >
-  A silver humanoid robot in a T-pose, built from the designer's front concept
-  (refs/robot_front.png). 1.9 m tall, arm span about 2.23 m. Brushed steel plates over a black
-  mechanical frame, blue lights (no emission: a bright blue) at the eyes, ears, chest, shoulders,
-  arms, hips, thighs, knees and feet and down the spine. The back has its own plate over a black spine
-  with blue lights. Detailed low-poly: the plates follow the divisions `sightline structure` finds in
+  A silver humanoid robot in a T-pose, built from the designer's concept in four views
+  (refs/robot_front.png, robot_back.png, robot_right.png, robot_left.png). 1.9 m tall, arm span
+  about 2.23 m. Brushed steel plates over a black mechanical frame, blue lights (no emission: a bright
+  blue) at the eyes, ears, chest, shoulders, arms, hips, thighs, knees and feet. The back has its own
+  plates (upper back, shoulder blades, lower back, spine segments) over the black frame, with a blue
+  light on each shoulder blade; the side views give the depth of every part. Detailed low-poly: the plates follow the divisions `sightline structure` finds in
   the concept; no rivets or panel lines; the T-pose keeps it ready for rigging.
 style: default
 tags: [character]
-reference: {image: refs/robot_front.png, view: front, height: 1.9}
+reference:
+  - {image: refs/robot_front.png, view: front, height: 1.9}
+  - {image: refs/robot_back.png, view: back, height: 1.9}
+  - {image: refs/robot_right.png, view: right, height: 1.9}
+  - {image: refs/robot_left.png, view: left, height: 1.9}
 # Left/right follow the axes: _l parts are on -X (the viewer's left in the front view), which is the
 # robot's right side. Every _l part is mirrored to _r. Arms run along X at shoulder height ~1.53 m.
 # Plate positions come from `sightline structure assets/refs/robot_front.png --height 1.9`.
 parts:
   # --- feet and lower legs ------------------------------------------------------------------------
-  - name: sole_l                     # a thin dark sole: the boot reads silver down to 2-3 cm
+  # --- legs: volumes, front outlines traced from the concept, extruded through the leg's depth ---
+  - name: sole_l
     shape: box
-    size: [0.17, 0.035, 0.3]
-    round: 0.015
+    size: [0.17, 0.03, 0.30]
+    round: 0.012
     material: paint_black
-    at: [-0.175, 0, 0.04]
+    at: [-0.175, 0, 0.055]
     align: bottom
     mirror: x
-  - name: boot_l
-    shape: box
-    size: [0.15, 0.11, 0.27]
-    round: 0.03
-    material: metal
-    at: [-0.175, 0.03, 0.045]
-    align: bottom
-    mirror: x
-  - name: boot_cuff_l                # the narrow ankle part of the boot
-    shape: box
-    size: [0.09, 0.09, 0.13]
+  - name: boot_l                     # side profile from the side views: low toe, steep slope, upright ankle
+    shape: extrude
+    points: [[0.15, -0.09], [-0.14, -0.09], [-0.15, -0.05], [-0.04, 0.0], [0.025, 0.05], [0.03, 0.09], [0.13, 0.09], [0.15, 0.0]]
+    depth: 0.13
     round: 0.02
-    material: iron
-    at: [-0.155, 0.13, 0.0]
+    rotate: [0, 90, 0]
+    material: metal
+    at: [-0.175, 0.12, 0.06]
+    mirror: x
+  - name: toe_cap_l                  # the wide front of the boot
+    shape: box
+    size: [0.17, 0.045, 0.13]
+    round: 0.022
+    material: metal
+    at: [-0.175, 0.025, 0.135]
     align: bottom
     mirror: x
-  - name: foot_band_l
+  - name: boot_panel_l
     shape: box
-    size: [0.03, 0.06, 0.03]
-    round: 0.006
-    material: metal
-    at: [-0.167, 0.115, 0.185]
+    size: [0.05, 0.065, 0.012]
+    round: 0.005
+    rotate: [-41, 0, 0]
+    material: iron
+    at: [-0.167, 0.14, 0.0475]
     mirror: x
-  - name: foot_light_l
+  - name: boot_light_l
     shape: box
-    size: [0.014, 0.045, 0.03]
+    size: [0.014, 0.045, 0.012]
+    rotate: [-41, 0, 0]
     material: glow_blue
-    at: [-0.167, 0.115, 0.2]
+    at: [-0.167, 0.144, 0.052]
     mirror: x
-  - name: ankle_l
+  - name: ankle_l                    # dark ankle mechanics
     shape: cylinder
     radius: 0.042
-    height: 0.09
-    material: iron
-    at: [-0.16, 0.17, -0.01]
-    align: bottom
-    mirror: x
-  - name: calf_l                     # dark calf mechanics, seen beside the shin plate
-    shape: cone
-    radius: 0.048
-    top_radius: 0.066
-    height: 0.44
+    height: 0.18
     sides: 8
     material: iron
-    at: [-0.155, 0.14, -0.02]
+    at: [-0.155, 0.17, -0.005]
     align: bottom
     mirror: x
-  - name: shin_lower_l               # a narrow plate on the inner front; dark mechanics outside it
-    shape: cone
-    radius: 0.03
-    top_radius: 0.05
-    height: 0.24
-    sides: 6
-    material: iron
-    at: [-0.125, 0.22, 0.04]
-    align: bottom
-    mirror: x
-  - name: shin_upper_l
-    shape: cone
-    radius: 0.07
-    top_radius: 0.058
-    height: 0.14
-    sides: 6
+  - name: piston_in_l
+    shape: cylinder
+    radius: 0.009
+    height: 0.15
     material: metal
-    at: [-0.14, 0.455, 0.03]
+    at: [-0.122, 0.2, 0.035]
     align: bottom
     mirror: x
-  - name: knee_joint_l
-    shape: box
-    size: [0.1, 0.18, 0.11]
-    round: 0.035
-    material: iron
-    at: [-0.135, 0.665, -0.01]
-    mirror: x
-  - name: knee_plate_l
-    shape: box
-    size: [0.08, 0.1, 0.05]
-    round: 0.02
+  - name: piston_out_l
+    shape: cylinder
+    radius: 0.009
+    height: 0.15
     material: metal
-    at: [-0.13, 0.625, 0.055]
+    at: [-0.19, 0.2, 0.035]
+    align: bottom
+    mirror: x
+  - name: ankle_disc_l
+    shape: cylinder
+    radius: 0.026
+    height: 0.024
+    rotate: [0, 0, 90]
+    material: metal
+    at: [-0.205, 0.215, 0]
+    mirror: x
+  - name: shin_l                     # shin guard: widest under the calf, narrowing on the outside to the ankle
+    shape: extrude
+    points: [[-0.064, 0.188], [0.001, 0.157], [0.066, 0.188], [0.082, 0.093], [0.048, -0.007], [0.006, -0.097], [-0.004, -0.187], [-0.054, -0.187], [-0.066, -0.027], [-0.082, 0.093]]
+    side: [[0.092, 0.188], [0.074, 0.133], [0.075, 0.053], [0.066, -0.027], [0.057, -0.077], [0.044, -0.127], [0.043, -0.188], [-0.046, -0.188], [-0.049, -0.107], [-0.064, -0.047], [-0.081, -0.007], [-0.092, 0.043], [-0.084, 0.093], [-0.070, 0.133], [-0.051, 0.188]]
+    round: 0.025
+    material: metal
+    at: [-0.146, 0.407, -0.024]
+    mirror: x
+  - name: knee_l                     # dark knee mechanism, from the shin guard up into the thigh
+    shape: ellipsoid
+    size: [0.12, 0.22, 0.12]
+    material: iron
+    at: [-0.135, 0.655, -0.005]
+    mirror: x
+  - name: knee_disc_in_l
+    shape: cylinder
+    radius: 0.032
+    height: 0.026
+    rotate: [0, 0, 90]
+    material: iron
+    at: [-0.07, 0.645, 0]
+    mirror: x
+  - name: knee_disc_out_l
+    shape: cylinder
+    radius: 0.036
+    height: 0.026
+    rotate: [0, 0, 90]
+    material: iron
+    at: [-0.2, 0.645, 0]
+    mirror: x
+  - name: knee_ring_l
+    shape: torus
+    radius: 0.02
+    thickness: 0.006
+    rotate: [0, 0, 90]
+    material: glow_blue
+    at: [-0.214, 0.645, 0]
+    mirror: x
+  - name: knee_cap_l                 # the concept's knee cap outline
+    shape: extrude
+    points: [[-0.015, 0.062], [0.020, 0.062], [0.035, 0.042], [0.030, -0.062], [-0.025, -0.042], [-0.035, 0.037]]
+    depth: 0.05
+    round: 0.012
+    material: metal
+    at: [-0.131, 0.622, 0.052]
     mirror: x
   - name: knee_light_l
     shape: box
-    size: [0.028, 0.01, 0.02]
+    size: [0.026, 0.01, 0.02]
     material: glow_blue
-    at: [-0.13, 0.67, 0.083]
+    at: [-0.13, 0.67, 0.08]
     mirror: x
-  - name: thigh_core_l               # dark inner thigh, seen between the plates
+  - name: thigh_core_l               # dark inner thigh, seen between the legs
     shape: capsule
-    radius: 0.06
-    height: 0.34
+    radius: 0.04
+    height: 0.4
     material: iron
-    at: [-0.105, 0.84, -0.02]
+    at: [-0.08, 0.82, -0.01]
     mirror: x
-  - name: thigh_plate_l              # 8-sided frustum: narrow at the knee, wide at the hip
-    shape: cone
-    radius: 0.078
-    top_radius: 0.09
-    height: 0.27
-    sides: 8
+  - name: thigh_l                    # thigh armour: the concept's outline, as deep as the thigh
+    shape: extrude
+    points: [[-0.015, 0.163], [0.035, 0.163], [0.059, 0.109], [0.074, -0.054], [0.059, -0.153], [0.005, -0.128], [-0.015, -0.163], [-0.039, -0.163], [-0.074, -0.020], [-0.074, 0.064], [-0.059, 0.118], [-0.039, 0.118]]
+    side: [[0.105, 0.163], [0.103, 0.064], [0.099, -0.006], [0.089, -0.066], [0.074, -0.126], [0.055, -0.163], [-0.069, -0.163], [-0.078, -0.126], [-0.092, -0.066], [-0.105, -0.006], [-0.104, 0.044], [-0.099, 0.163]]
+    round: 0.025
     material: metal
-    at: [-0.13, 0.73, 0.01]
-    align: bottom
+    at: [-0.146, 0.886, 0.007]
     mirror: x
-  - name: thigh_light_l              # the light strip on the outer thigh
+  - name: thigh_light_l
     shape: box
-    size: [0.014, 0.04, 0.03]
+    size: [0.016, 0.045, 0.03]
     material: glow_blue
-    at: [-0.216, 0.845, 0.0]
+    at: [-0.218, 0.845, 0.0]
+    mirror: x
+  # --- leg inlays: the concept's panels and dark mechanics, flush on the leg volumes --------------
+  - name: inlay_r11_l                 # traced from front picture region R11 (pair R10): bright, raised plate
+    shape: extrude
+    points: [[-0.052, 0.126], [-0.027, 0.126], [0.002, 0.072], [0.067, 0.076], [0.072, 0.022], [0.047, -0.027], [0.037, -0.126], [-0.027, -0.081], [-0.037, -0.002], [-0.062, 0.002], [-0.072, 0.072]]
+    depth: 0.008
+    round: 0.002
+    material: metal
+    at: [-0.153, 0.448, 0.053]
+    mirror: x
+  - name: inlay_r30_l                 # traced from front picture region R30 (pair R18): dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.012, 0.037], [0.012, 0.032], [0.012, -0.037], [-0.007, -0.037]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [-0.123, 0.197, 0.031]
+    mirror: x
+  - name: inlay_r23_l                 # traced from front picture region R23 (pair R22): bright, raised plate
+    shape: extrude
+    points: [[-0.015, 0.054], [0.030, 0.039], [0.035, -0.020], [0.015, -0.054], [-0.015, -0.054], [-0.035, -0.020], [-0.035, 0.030]]
+    depth: 0.008
+    round: 0.002
+    material: metal
+    at: [-0.131, 0.623, 0.077]
+    mirror: x
+  - name: inlay_r25_l                 # traced from front picture region R25 (pair R26): dark, recessed (frame or gap)
+    shape: extrude
+    points: [[0.059, 0.025], [0.084, 0.010], [0.069, -0.025], [-0.084, -0.015], [-0.084, 0.005], [0.025, 0.005]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [-0.175, 0.026, 0.203]
+    mirror: x
+  - name: inlay_r34                 # traced from front picture region R34: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.002, 0.064], [0.017, 0.064], [0.012, -0.064], [-0.017, -0.059]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [-0.192, 0.263, 0.039]
+  - name: inlay_r50_l                 # traced from front picture region R50 (pair R64): dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.017, 0.037], [0.022, 0.032], [0.012, -0.037], [-0.022, -0.027]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [-0.153, 0.241, 0.034]
+    mirror: x
+  - name: inlay_r51                 # traced from front picture region R51: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.020, 0.042], [0.005, 0.042], [0.020, -0.042], [0.000, -0.042]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [-0.076, 0.537, 0.044]
+  - name: inlay_r58_l                 # traced from front picture region R58 (pair R75): dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.017, 0.035], [0.017, 0.025], [0.012, -0.035], [-0.012, -0.035]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [-0.158, 0.317, 0.034]
+    mirror: x
+  - name: inlay_r61                 # traced from front picture region R61: bright, raised plate
+    shape: extrude
+    points: [[-0.012, 0.035], [0.012, 0.035], [0.012, -0.035], [-0.007, -0.035]]
+    depth: 0.008
+    round: 0.002
+    material: metal
+    at: [0.163, 0.298, 0.034]
+  - name: inlay_r72                 # traced from front picture region R72: bright, raised plate
+    shape: extrude
+    points: [[-0.007, 0.022], [0.012, 0.022], [0.012, -0.022], [-0.012, -0.022]]
+    depth: 0.008
+    round: 0.002
+    material: metal
+    at: [0.163, 0.231, 0.034]
+  - name: inlay_r73                 # traced from front picture region R73: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[-0.015, 0.022], [0.015, 0.022], [0.010, -0.022], [-0.015, -0.017]]
+    depth: 0.008
+    round: 0.002
+    material: iron
+    at: [0.195, 0.216, 0.034]
+  - name: inlay_r82_l                 # traced from front picture region R82 (pair R86): bright, raised plate
+    shape: extrude
+    points: [[0.000, 0.020], [0.020, 0.005], [0.005, -0.020], [-0.020, -0.005]]
+    depth: 0.008
+    round: 0.002
+    material: metal
+    at: [-0.136, 0.539, 0.052]
     mirror: x
   # --- pelvis --------------------------------------------------------------------------------------
   - name: pelvis
     shape: box
-    size: [0.34, 0.15, 0.22]
+    size: [0.34, 0.15, 0.18]
     round: 0.03
     material: iron
-    at: [0, 1.05, -0.02]
+    at: [0, 1.05, 0.005]
   - name: hip_belt_l                 # the V of the hip plate: a wing from the hip down to the middle
     shape: box
     size: [0.17, 0.06, 0.05]
@@ -188,6 +314,12 @@ parts:
     material: iron
     at: [0, 1.12, -0.02]
     align: bottom
+  - name: abdomen_back_cut           # the waist is slim from the side: its back is flat, 8.5 cm behind the centre
+    shape: box
+    size: [0.4, 0.34, 0.2]
+    op: cut
+    from: [abdomen]
+    at: [0, 1.25, -0.165]
   - name: ab_plate
     shape: box
     size: [0.08, 0.06, 0.05]
@@ -197,21 +329,26 @@ parts:
     repeat: {count: 3, step: [0, -0.078, 0]}
   - name: chest_core                 # the dark frame between and around the chest plates
     shape: ellipsoid
-    size: [0.4, 0.32, 0.25]
+    size: [0.4, 0.32, 0.22]
     material: iron
-    at: [0, 1.47, -0.02]
+    at: [0, 1.47, -0.005]
   - name: lats                       # the dark sides of the chest under the armpits
     shape: ellipsoid
     size: [0.46, 0.18, 0.22]
     material: iron
     at: [0, 1.5, -0.03]
-  - name: pec_l
-    shape: box
-    size: [0.15, 0.2, 0.07]
-    round: 0.03
-    rotate: [0, -8, 0]
+  - name: upper_back                 # the rounded upper back under the back plates (side pictures)
+    shape: ellipsoid
+    size: [0.34, 0.3, 0.2]
+    material: iron
+    at: [0, 1.52, -0.05]
+  - name: pec_l                      # the chest under the pec plate, its front bent back to the collar bone
+    shape: extrude
+    points: [[-0.075, -0.1], [0.075, -0.1], [0.075, 0.1], [-0.075, 0.1]]
+    side: [[-0.069, -0.100], [0.061, -0.100], [0.069, -0.060], [0.049, -0.010], [0.021, 0.030], [-0.009, 0.065], [-0.039, 0.100], [-0.069, 0.100]]
+    round: 0.02
     material: metal
-    at: [-0.11, 1.51, 0.1]
+    at: [-0.11, 1.51, 0.069]
     mirror: x
   - name: rib_plate_l                # the lower chest plate under each pec
     shape: box
@@ -231,26 +368,14 @@ parts:
     size: [0.03, 0.012, 0.02]
     material: glow_blue
     at: [0, 1.405, 0.102]
-  - name: back_plate
-    shape: box
-    size: [0.3, 0.22, 0.05]
-    round: 0.02
-    material: metal
-    at: [0, 1.47, -0.15]
   - name: spine
     shape: cylinder
     radius: 0.035
     height: 0.34
     sides: 8
     material: iron
-    at: [0, 1.06, -0.13]
+    at: [0, 1.06, -0.035]
     align: bottom
-  - name: spine_light
-    shape: box
-    size: [0.03, 0.025, 0.02]
-    material: glow_blue
-    at: [0, 1.15, -0.17]
-    repeat: {count: 2, step: [0, 0.11, 0]}
   # --- neck and head -------------------------------------------------------------------------------
   - name: traps                      # the slope from the neck to the shoulders
     shape: cone
@@ -261,6 +386,19 @@ parts:
     material: iron
     at: [0, 1.58, -0.02]
     align: bottom
+  - name: traps_trim_front           # the front of the shoulders slopes back to the neck (side pictures)
+    shape: box
+    size: [0.5, 0.3, 0.2]
+    rotate: [-36.87, 0, 0]
+    op: cut
+    from: [traps]
+    at: [0, 1.66, 0.15]
+  - name: traps_trim_back
+    shape: box
+    size: [0.5, 0.2, 0.2]
+    op: cut
+    from: [traps]
+    at: [0, 1.62, -0.22]
   - name: neck
     shape: cylinder
     radius: 0.06
@@ -281,7 +419,7 @@ parts:
     at: [0, 1.775, -0.012]
   - name: cranium
     shape: ellipsoid
-    size: [0.17, 0.14, 0.2]
+    size: [0.17, 0.14, 0.22]
     material: metal
     at: [0, 1.83, 0]
   - name: face                       # hexagonal mask: narrow chin, wide brow
@@ -290,8 +428,9 @@ parts:
     top_radius: 0.074
     height: 0.16
     sides: 6
+    rotate: [-10, 0, 0]
     material: metal
-    at: [0, 1.665, 0.03]
+    at: [0, 1.665, 0.082]
     align: bottom
   - name: crest
     shape: box
@@ -309,12 +448,12 @@ parts:
     size: [0.11, 0.025, 0.02]
     round: 0.006
     material: metal
-    at: [0, 1.776, 0.088]
+    at: [0, 1.776, 0.116]
   - name: eye_l
     shape: box
     size: [0.03, 0.014, 0.02]
     material: glow_blue
-    at: [-0.035, 1.776, 0.098]
+    at: [-0.035, 1.776, 0.12]
     mirror: x
   - name: ear_l
     shape: cylinder
@@ -462,44 +601,174 @@ parts:
     at: [-1.02, 1.5, 0.033]
     mirror: x
   # --- back plates (the designer: silver plates on the back and the backs of the thighs) -----------
-  - name: blade_plate_l              # shoulder blade
-    shape: box
-    size: [0.13, 0.16, 0.03]
-    round: 0.01
-    rotate: [0, 10, 0]
+  # --- back plates traced from the back picture (structure robot --index 1 --trace ... --conform) ---
+  - name: back_plate                 # traced from back picture region R6: bright, raised plate
+    shape: extrude
+    points: [[-0.042, 0.081], [-0.067, 0.067], [-0.131, 0.076], [-0.141, 0.047], [-0.126, 0.017], [-0.052, -0.022], [-0.032, -0.081], [0.032, -0.076], [0.052, -0.022], [0.141, 0.032], [0.131, 0.076], [0.042, 0.072], [0.022, 0.037], [-0.032, 0.037]]
+    side: [[-0.004, 0.084], [0.034, -0.002], [0.028, -0.084], [-0.002, -0.084], [0.004, -0.002], [-0.034, 0.084]]
+    round: 0.004
+    rotate: [0, 180, 0]
     material: metal
-    at: [-0.09, 1.49, -0.152]
+    at: [0.000, 1.549, -0.135]
+  - name: plate_back_r12                 # traced from back picture region R12: bright, raised plate
+    shape: extrude
+    points: [[-0.022, 0.091], [-0.047, 0.091], [-0.062, 0.067], [-0.062, -0.012], [-0.022, -0.032], [0.007, -0.091], [0.047, -0.091], [0.062, -0.081], [0.062, -0.017], [0.027, 0.062]]
+    side: [[0.030, 0.094], [0.041, 0.047], [0.039, 0.002], [0.023, -0.042], [-0.011, -0.094], [-0.041, -0.094], [-0.007, -0.042], [0.009, 0.002], [0.011, 0.047], [0.000, 0.094]]
+    round: 0.004
+    rotate: [0, 180, 0]
+    material: metal
+    at: [0.084, 1.465, -0.119]
+  - name: plate_back_r13                 # traced from back picture region R13: bright, raised plate
+    shape: extrude
+    points: [[0.059, 0.096], [-0.025, 0.067], [-0.059, -0.017], [-0.059, -0.076], [-0.039, -0.096], [-0.015, -0.096], [0.025, -0.027], [0.054, -0.017]]
+    side: [[0.034, 0.099], [0.046, 0.047], [0.042, 0.002], [0.022, -0.047], [-0.016, -0.099], [-0.046, -0.099], [-0.008, -0.047], [0.012, 0.002], [0.016, 0.047], [0.004, 0.099]]
+    round: 0.004
+    rotate: [0, 180, 0]
+    material: metal
+    at: [-0.081, 1.460, -0.115]
+  - name: plate_back_r4                 # traced from back picture region R4: bright, raised plate
+    shape: extrude
+    points: [[0.146, 0.099], [0.052, 0.079], [0.002, 0.020], [-0.037, 0.025], [-0.062, 0.064], [-0.116, 0.094], [-0.151, 0.089], [-0.151, 0.049], [-0.091, 0.015], [-0.037, -0.084], [0.012, -0.099], [0.091, 0.015], [0.151, 0.064]]
+    side: [[-0.001, 0.101], [0.031, -0.101], [0.001, -0.101], [-0.031, 0.101]]
+    round: 0.004
+    rotate: [0, 180, 0]
+    material: metal
+    at: [0.000, 1.122, -0.084]
+  - name: plate_back_r49                 # traced from back picture region R49: bright, raised plate
+    shape: extrude
+    points: [[0.012, 0.030], [-0.037, 0.015], [-0.022, -0.025], [0.012, -0.030], [0.037, -0.010], [0.037, 0.015]]
+    side: [[0.019, 0.032], [0.011, 0.000], [0.014, -0.032], [-0.016, -0.032], [-0.019, 0.000], [-0.011, 0.032]]
+    round: 0.004
+    rotate: [0, 180, 0]
+    material: metal
+    at: [0.000, 1.319, -0.075]
+  - name: plate_back_r51                 # traced from back picture region R51: bright, raised plate
+    shape: extrude
+    points: [[0.012, 0.027], [-0.032, 0.012], [-0.022, -0.027], [0.032, -0.017]]
+    side: [[0.015, 0.030], [0.015, -0.035], [-0.015, -0.035], [-0.015, 0.030]]
+    round: 0.004
+    rotate: [0, 180, 0]
+    material: metal
+    at: [0.000, 1.257, -0.072]
+  - name: plate_back_r33_l                 # traced from back picture region R33 (pair R32): bright, raised plate
+    shape: extrude
+    points: [[0.005, 0.049], [-0.015, 0.049], [-0.035, 0.010], [-0.030, -0.030], [-0.015, -0.049], [0.035, -0.049], [0.035, -0.005]]
+    side: [[0.004, 0.052], [0.026, 0.000], [0.014, -0.052], [-0.016, -0.052], [-0.004, 0.000], [-0.026, 0.052]]
+    round: 0.004
+    rotate: [0, 180, 0]
+    material: metal
+    at: [-0.175, 1.092, -0.073]
     mirror: x
-  - name: thigh_back_l
-    shape: box
-    size: [0.12, 0.24, 0.03]
-    round: 0.01
-    material: metal
-    at: [-0.13, 0.86, -0.075]
+  - name: back_light_l                 # traced from back picture region R102 (pair R101): accent blue, light or decal
+    shape: extrude
+    points: [[0.010, 0.015], [0.005, 0.015], [-0.010, -0.015], [-0.005, -0.015]]
+    depth: 0.01
+    round: 0.0025
+    rotate: [0, 180, 0]
+    material: glow_blue
+    at: [-0.106, 1.418, -0.096]
     mirror: x
-  - name: calf_back_l
-    shape: box
-    size: [0.08, 0.22, 0.03]
-    round: 0.01
+  # --- side plates traced from the right picture (structure robot --index 2 --trace ... --conform) -
+  - name: plate_right_r10_r                 # traced from right picture region R10: bright, raised plate
+    shape: extrude
+    points: [[-0.034, 0.041], [-0.060, 0.041], [-0.078, -0.037], [-0.013, -0.024], [0.056, -0.041], [0.056, -0.024], [0.078, -0.015], [0.073, 0.006]]
+    side: [[0.006, 0.043], [-0.003, 0.002], [0.015, -0.043], [0.003, -0.043], [-0.015, 0.002], [-0.006, 0.043]]
+    round: 0.003
+    rotate: [0, 90, 0]
     material: metal
-    at: [-0.155, 0.38, -0.085]
+    at: [0.138, 1.197, 0.004]
+    mirror: x
+  - name: plate_right_r27_r                 # traced from right picture region R27: bright, raised plate
+    shape: extrude
+    points: [[0.002, 0.030], [-0.024, 0.030], [-0.028, 0.000], [-0.015, -0.030], [0.028, -0.030]]
+    side: [[0.030, 0.032], [-0.007, -0.004], [-0.018, -0.032], [-0.030, -0.032], [-0.019, -0.004], [0.018, 0.032]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: metal
+    at: [0.077, 1.712, -0.033]
+    mirror: x
+  - name: plate_right_r29_r                 # traced from right picture region R29: bright, raised plate
+    shape: extrude
+    points: [[0.013, 0.041], [-0.004, 0.041], [-0.017, -0.041], [0.017, -0.019]]
+    side: [[0.009, 0.043], [0.003, -0.043], [-0.009, -0.043], [-0.003, 0.043]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: metal
+    at: [0.202, 1.055, -0.048]
+    mirror: x
+  - name: plate_right_r43_r                 # traced from right picture region R43: bright, raised plate
+    shape: extrude
+    points: [[0.017, 0.015], [-0.017, 0.015], [-0.009, -0.015], [0.017, -0.011]]
+    side: [[0.008, 0.017], [0.004, -0.017], [-0.008, -0.017], [-0.004, 0.017]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: metal
+    at: [0.211, 1.068, 0.012]
+    mirror: x
+  - name: plate_right_r11_r                 # traced from right picture region R11: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[0.002, 0.052], [-0.028, 0.052], [-0.045, -0.052], [0.045, -0.039], [0.045, -0.004], [-0.002, -0.009]]
+    side: [[0.020, 0.162], [-0.001, 0.121], [-0.014, 0.052], [-0.003, 0.000], [0.026, -0.054], [0.014, -0.054], [-0.015, 0.000], [-0.026, 0.052], [-0.013, 0.121], [0.008, 0.162]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: iron
+    at: [0.189, 0.617, 0.023]
+    mirror: x
+  - name: plate_right_r15_r                 # traced from right picture region R15: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[0.022, 0.069], [-0.043, 0.056], [-0.052, 0.004], [-0.022, 0.022], [0.026, 0.017], [0.013, -0.069], [0.034, -0.069], [0.052, 0.039]]
+    side: [[0.015, 0.071], [-0.003, -0.071], [-0.015, -0.071], [0.003, 0.071]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: iron
+    at: [0.195, 1.066, 0.012]
+    mirror: x
+  - name: plate_right_r26_r                 # traced from right picture region R26: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[0.004, 0.037], [-0.017, 0.037], [-0.017, 0.015], [-0.000, -0.037], [0.017, -0.037]]
+    side: [[0.011, 0.039], [0.001, -0.039], [-0.011, -0.039], [-0.001, 0.039]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: iron
+    at: [0.213, 0.391, 0.017]
+    mirror: x
+  - name: plate_right_r21_r                 # traced from right picture region R21: dark, recessed (frame or gap)
+    shape: extrude
+    points: [[0.009, 0.058], [-0.009, 0.058], [-0.026, -0.058], [0.013, -0.054], [0.004, 0.006], [0.022, 0.011], [0.026, 0.037]]
+    side: [[0.001, 0.060], [0.011, -0.002], [0.007, -0.060], [-0.005, -0.060], [-0.001, -0.002], [-0.011, 0.060]]
+    round: 0.003
+    rotate: [0, 90, 0]
+    material: iron
+    at: [0.235, 0.158, 0.056]
+    mirror: x
+  - name: light_right_r46_r                 # traced from right picture region R46: accent blue, light or decal
+    shape: extrude
+    points: [[-0.017, 0.019], [-0.026, -0.002], [-0.013, -0.019], [0.026, -0.011], [0.026, 0.015], [0.026, -0.006], [-0.004, -0.015]]
+    depth: 0.008
+    round: 0.002
+    rotate: [0, 90, 0]
+    material: glow_blue
+    at: [0.210, 1.064, 0.017]
+    mirror: x
+  - name: light_right_r65_r                 # traced from right picture region R65: accent blue, light or decal
+    shape: extrude
+    points: [[0.017, 0.015], [0.009, 0.006], [-0.004, 0.006], [-0.013, -0.002], [-0.017, -0.002], [-0.017, -0.015], [-0.004, -0.015], [0.009, -0.002]]
+    depth: 0.008
+    round: 0.002
+    rotate: [0, 90, 0]
+    material: glow_blue
+    at: [0.190, 1.391, -0.057]
+    mirror: x
+  - name: light_right_r77_r                 # traced from right picture region R77: accent blue, light or decal
+    shape: extrude
+    points: [[0.013, 0.015], [-0.013, 0.015], [-0.013, -0.015], [0.013, -0.015]]
+    depth: 0.008
+    round: 0.002
+    rotate: [0, 90, 0]
+    material: glow_blue
+    at: [0.240, 0.152, 0.032]
     mirror: x
   # --- plates traced from the concept (sightline structure robot --trace ...) ----------------------
-  - name: plate_r1                 # traced from picture region R1: dark, recessed (frame or gap)
-    shape: extrude
-    points: [[0.052, 0.136], [0.111, 0.111], [0.081, 0.052], [0.067, -0.136], [0.037, -0.101], [0.022, 0.052], [-0.037, 0.047], [-0.047, -0.096], [-0.076, -0.136], [-0.086, 0.052], [-0.111, 0.101], [-0.052, 0.126], [0.007, 0.072]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [0.005, 0.943, 0.040]
-  - name: plate_r3_l                 # traced from picture region R3 (pair R2): bright, raised plate
-    shape: extrude
-    points: [[-0.015, 0.163], [0.035, 0.163], [0.059, 0.109], [0.074, -0.054], [0.059, -0.153], [0.005, -0.128], [-0.015, -0.163], [-0.039, -0.163], [-0.074, -0.020], [-0.074, 0.064], [-0.059, 0.118], [-0.039, 0.118]]
-    depth: 0.03
-    round: 0.004
-    material: metal
-    at: [-0.146, 0.886, 0.095]
-    mirror: x
   - name: plate_r4_l                 # traced from picture region R4 (pair R5): dark, recessed (frame or gap)
     shape: extrude
     points: [[0.306, 0.067], [0.350, 0.052], [0.321, -0.067], [0.262, -0.012], [-0.138, -0.032], [-0.350, -0.002], [-0.331, 0.022], [-0.113, -0.002], [-0.104, 0.057], [0.000, 0.007], [0.079, 0.037], [0.197, 0.007]]
@@ -511,10 +780,10 @@ parts:
   - name: plate_r7_l                 # traced from picture region R7 (pair R6): bright, raised plate
     shape: extrude
     points: [[-0.025, 0.133], [0.035, 0.123], [0.079, 0.049], [0.079, -0.015], [0.005, -0.109], [-0.059, -0.133], [-0.044, -0.044], [-0.079, -0.010], [-0.079, 0.044]]
-    depth: 0.03
+    side: [[0.045, -0.133], [0.053, -0.088], [0.063, -0.048], [0.067, -0.018], [0.058, 0.012], [0.047, 0.032], [0.020, 0.072], [-0.007, 0.102], [-0.037, 0.133], [-0.067, 0.133], [-0.037, 0.102], [-0.010, 0.072], [0.017, 0.032], [0.028, 0.012], [0.037, -0.018], [0.033, -0.048], [0.023, -0.088], [0.015, -0.133]]
     round: 0.004
     material: metal
-    at: [-0.091, 1.468, 0.143]
+    at: [-0.091, 1.468, 0.097]
     mirror: x
   - name: plate_r9                 # traced from picture region R9: bright, raised plate
     shape: extrude
@@ -523,29 +792,13 @@ parts:
     round: 0.004
     material: metal
     at: [0.000, 1.118, 0.125]
-  - name: plate_r11_l                 # traced from picture region R11 (pair R10): bright, raised plate
-    shape: extrude
-    points: [[-0.047, 0.128], [-0.027, 0.128], [0.002, 0.069], [0.062, 0.084], [0.072, 0.059], [0.037, -0.128], [-0.027, -0.084], [-0.042, 0.015], [-0.072, 0.025]]
-    depth: 0.03
-    round: 0.004
-    material: metal
-    at: [-0.153, 0.457, 0.091]
-    mirror: x
-  - name: plate_r12_l                 # traced from picture region R12 (pair R13): bright, raised plate
-    shape: extrude
-    points: [[0.002, 0.084], [0.032, 0.084], [0.057, 0.039], [0.067, -0.064], [0.052, -0.084], [-0.067, -0.084], [-0.047, 0.039]]
-    depth: 0.03
-    round: 0.004
-    material: metal
-    at: [-0.173, 0.121, 0.185]
-    mirror: x
   - name: plate_r18_l                 # traced from picture region R18 (pair R14): bright, raised plate
     shape: extrude
     points: [[0.012, 0.037], [0.072, 0.032], [0.081, -0.012], [0.032, -0.037], [-0.081, -0.032], [-0.081, -0.012]]
-    depth: 0.03
+    side: [[0.041, -0.037], [0.023, -0.004], [-0.012, 0.037], [-0.042, 0.037], [-0.007, -0.004], [0.011, -0.037]]
     round: 0.004
     material: metal
-    at: [-0.247, 1.604, 0.098]
+    at: [-0.247, 1.604, 0.072]
     mirror: x
   - name: plate_r16_l                 # traced from picture region R16 (pair R15): bright, raised plate
     shape: extrude
@@ -569,14 +822,6 @@ parts:
     round: 0.004
     material: iron
     at: [0.002, 1.508, 0.087]
-  - name: plate_r21_l                 # traced from picture region R21 (pair R20): bright, raised plate
-    shape: extrude
-    points: [[-0.015, 0.062], [0.020, 0.062], [0.035, 0.042], [0.030, -0.062], [-0.025, -0.042], [-0.035, 0.037]]
-    depth: 0.03
-    round: 0.004
-    material: metal
-    at: [-0.131, 0.622, 0.085]
-    mirror: x
   - name: plate_r22                 # traced from picture region R22: dark, recessed (frame or gap)
     shape: extrude
     points: [[0.000, 0.035], [0.039, 0.035], [0.049, -0.015], [-0.035, -0.035], [-0.049, 0.015]]
@@ -591,14 +836,6 @@ parts:
     round: 0.004
     material: iron
     at: [0.049, 1.295, 0.094]
-  - name: plate_r28_l                 # traced from picture region R28 (pair R24): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[0.057, 0.025], [0.081, 0.010], [0.072, -0.025], [-0.081, -0.020], [-0.081, 0.000], [0.052, 0.005]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.173, 0.032, 0.176]
-    mirror: x
   - name: plate_r33_l                 # traced from picture region R33 (pair R25): dark, recessed (frame or gap)
     shape: extrude
     points: [[-0.025, 0.062], [0.000, 0.057], [0.025, -0.062], [-0.025, -0.052]]
@@ -606,14 +843,6 @@ parts:
     round: 0.004
     material: iron
     at: [-0.101, 1.273, 0.042]
-    mirror: x
-  - name: plate_r29_l                 # traced from picture region R29 (pair R26): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.012, 0.027], [0.012, 0.022], [0.012, -0.027], [-0.012, -0.017]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.123, 0.212, 0.051]
     mirror: x
   - name: plate_r27                 # traced from picture region R27: bright, raised plate
     shape: extrude
@@ -629,14 +858,6 @@ parts:
     round: 0.004
     material: metal
     at: [0.000, 1.345, 0.117]
-  - name: plate_r31_l                 # traced from picture region R31 (pair R56): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.002, 0.067], [0.017, 0.067], [0.007, -0.067], [-0.017, -0.062]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.192, 0.267, 0.003]
-    mirror: x
   - name: plate_r32                 # traced from picture region R32: dark, recessed (frame or gap)
     shape: extrude
     points: [[-0.000, 0.072], [0.030, 0.057], [0.030, 0.022], [-0.000, -0.002], [-0.010, -0.072], [-0.030, -0.072], [-0.025, -0.002], [-0.000, 0.007]]
@@ -644,13 +865,6 @@ parts:
     round: 0.004
     material: iron
     at: [0.072, 1.742, 0.013]
-  - name: plate_r34                 # traced from picture region R34: dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.012, 0.059], [0.017, 0.054], [0.007, -0.059], [-0.017, -0.059]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.173, 0.654, 0.021]
   - name: plate_r59_l                 # traced from picture region R59 (pair R35): bright, raised plate
     shape: extrude
     points: [[-0.010, 0.030], [0.015, 0.025], [0.015, -0.030], [-0.015, -0.030]]
@@ -712,13 +926,6 @@ parts:
     material: iron
     at: [-0.528, 1.562, 0.028]
     mirror: x
-  - name: plate_r50                 # traced from picture region R50: dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.005, 0.039], [0.015, 0.039], [0.005, -0.039], [-0.015, -0.039]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [0.072, 0.535, 0.024]
   - name: plate_r51                 # traced from picture region R51: bright, raised plate
     shape: extrude
     points: [[-0.020, 0.039], [0.020, 0.015], [0.005, -0.039], [-0.020, -0.039]]
@@ -733,14 +940,6 @@ parts:
     round: 0.004
     material: iron
     at: [-0.054, 1.700, 0.015]
-  - name: plate_r53_l                 # traced from picture region R53 (pair R77): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.017, 0.037], [0.022, 0.032], [0.012, -0.037], [-0.022, -0.027]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.153, 0.247, 0.021]
-    mirror: x
   - name: plate_r54_l                 # traced from picture region R54 (pair R60): dark, recessed (frame or gap)
     shape: extrude
     points: [[-0.037, 0.017], [0.032, 0.017], [0.037, -0.012], [-0.027, -0.017]]
@@ -756,29 +955,6 @@ parts:
     round: 0.004
     material: iron
     at: [0.395, 1.522, 0.038]
-  - name: plate_r57_l                 # traced from picture region R57 (pair R68): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.012, 0.032], [0.022, 0.032], [0.012, -0.032], [-0.022, -0.017]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.128, 0.721, 0.034]
-    mirror: x
-  - name: plate_r58                 # traced from picture region R58: dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.015, 0.035], [0.005, 0.035], [0.015, -0.035], [-0.005, -0.035]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.072, 0.535, 0.024]
-  - name: plate_r64_l                 # traced from picture region R64 (pair R71): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.017, 0.035], [0.017, 0.025], [0.012, -0.035], [-0.012, -0.035]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.158, 0.323, 0.030]
-    mirror: x
   - name: plate_r65                 # traced from picture region R65: dark, recessed (frame or gap)
     shape: extrude
     points: [[0.002, 0.015], [0.032, 0.010], [0.027, -0.015], [-0.032, -0.010], [-0.032, 0.010]]
@@ -786,14 +962,6 @@ parts:
     round: 0.004
     material: iron
     at: [0.015, 1.399, 0.078]
-  - name: plate_r69_l                 # traced from picture region R69 (pair R66): dark, recessed (frame or gap)
-    shape: extrude
-    points: [[-0.015, 0.039], [0.005, 0.039], [0.015, -0.039], [-0.005, -0.039]]
-    depth: 0.03
-    round: 0.004
-    material: iron
-    at: [-0.205, 0.437, -0.001]
-    mirror: x
   - name: plate_r70_l                 # traced from picture region R70 (pair R67): bright, raised plate
     shape: extrude
     points: [[0.002, 0.012], [0.032, 0.012], [0.032, -0.007], [-0.032, -0.012], [-0.032, 0.007]]
@@ -846,13 +1014,6 @@ parts:
     material: iron
     at: [-0.484, 1.537, 0.038]
     mirror: x
-  - name: plate_r79                 # traced from picture region R79: bright, raised plate
-    shape: extrude
-    points: [[-0.005, 0.020], [0.015, 0.020], [0.010, -0.020], [-0.015, -0.015]]
-    depth: 0.03
-    round: 0.004
-    material: metal
-    at: [0.160, 0.230, 0.066]
   - name: plate_r80                 # traced from picture region R80: dark, recessed (frame or gap)
     shape: extrude
     points: [[-0.007, 0.025], [0.012, 0.025], [0.007, -0.025], [-0.012, -0.025]]
@@ -867,14 +1028,6 @@ parts:
     round: 0.004
     material: metal
     at: [0.094, 1.071, 0.095]
-  - name: plate_r92_l                 # traced from picture region R92 (pair R89): bright, raised plate
-    shape: extrude
-    points: [[-0.010, 0.012], [0.015, 0.012], [0.015, -0.012], [-0.015, -0.012]]
-    depth: 0.03
-    round: 0.004
-    material: metal
-    at: [-0.136, 0.543, 0.091]
-    mirror: x
   - name: plate_r90                 # traced from picture region R90: bright, raised plate
     shape: extrude
     points: [[-0.010, 0.010], [0.010, 0.010], [0.010, -0.010], [-0.010, -0.010]]
@@ -890,10 +1043,13 @@ checks:
   - symmetric: {axis: x, min: 0.95}
   - visible: {part: eye_l, view: front, min: 0.6, why: "the glowing eyes are the face"}
   - visible: {part: sternum_light, view: front, min: 0.6}
-  - visible: {part: spine_light_1, view: back, min: 0.6, why: "the back has its own lights"}
+  - visible: {part: back_light_l, view: back, min: 0.6, why: "the back has its own lights"}
   - relation: {a: cranium, is: above, b: chest_core}
   - relation: {a: back_plate, is: behind, b: chest_core}
   - contrast: {a: shoulder_ring_r, b: shoulder_disc_r, min: 2.0, why: "the blue rings read against the black joints"}
   - readable_at: {px: 48, min_iou: 0.7, keep: [cranium], view: front, why: "the head and the plated body read on a small portrait"}
-  - matches_reference: {min_iou: 0.83, max_missing: 0.10, why: "the designer's front concept (IoU 0.86 with exact coverage; thin finger gaps and cables make most of the missing share)"}
-  - max_parts: 248
+  - matches_reference: {index: 0, min_iou: 0.86, max_missing: 0.06, why: "the designer's front concept"}
+  - matches_reference: {index: 1, min_iou: 0.85, max_missing: 0.07, why: "the back concept"}
+  - matches_reference: {index: 2, min_iou: 0.85, max_missing: 0.05, why: "the right side concept: the depth of every band"}
+  - matches_reference: {index: 3, min_iou: 0.85, max_missing: 0.05, why: "the left side concept"}
+  - max_parts: 288

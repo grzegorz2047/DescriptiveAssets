@@ -64,8 +64,61 @@ def test_extrude_distances_and_bounds():
     assert rounded.sdf(corner)[0] > p.sdf(corner)[0]
 
 
+# a front outline (a 0.4 x 0.6 rectangle at heights 1.0..1.6) and a side outline in the same heights:
+# a wedge 0.2 deep at the bottom, 0.05 at the top, leaning back (z from -0.1 to +0.1)
+FRONT = [[-0.2, 1.0], [0.2, 1.0], [0.2, 1.6], [-0.2, 1.6]]
+SIDE = [[-0.1, 1.0], [0.1, 1.0], [0.0, 1.6], [-0.05, 1.6]]
+
+
+def test_extrude_side_is_the_intersection_of_both_outlines():
+    p = make_part("s", "extrude", {"points": FRONT, "side": SIDE}, [0, 0, 0])
+    assert p.params["depth"] == pytest.approx(0.2)  # the side outline sets the depth
+    assert p.local_half == pytest.approx([0.2, 0.3, 0.1])  # y centred on the shared heights 1.0..1.6
+    # local frame: y 1.0..1.6 -> -0.3..0.3, side z -0.1..0.1 -> centred on 0
+    q = np.array([[0, -0.29, 0.09],    # low and far forward: inside both
+                  [0, 0.29, 0.09],     # high and far forward: inside the front outline, in front of the side's lean
+                  [0, 0.29, -0.02],    # high, on the side outline
+                  [0.25, 0, 0]], np.float32)  # beside the front outline
+    d = p.sdf(q)
+    assert d[0] < 0 and d[1] > 0.05 and d[2] < 0 and d[3] == pytest.approx(0.05, abs=1e-5)
+    lo, hi = make_part("w", "extrude", {"points": FRONT, "side": SIDE}, [1, 2, 3]).world_aabb()
+    assert lo == pytest.approx([0.8, 1.7, 2.9]) and hi == pytest.approx([1.2, 2.3, 3.1])
+
+
+def test_extrude_side_uses_only_the_shared_heights():
+    short = [[-0.1, 1.2], [0.1, 1.2], [0.1, 1.4], [-0.1, 1.4]]
+    p = make_part("s", "extrude", {"points": FRONT, "side": short}, [0, 0, 0])
+    assert p.local_half == pytest.approx([0.2, 0.1, 0.1])
+
+
+def test_extrude_side_renders_its_profile(scratch):
+    text = """asset: wedge2
+style: default
+parts:
+  - name: plate
+    shape: extrude
+    points: [[-0.2, 1.0], [0.2, 1.0], [0.2, 1.6], [-0.2, 1.6]]
+    side: [[-0.1, 1.0], [0.1, 1.0], [0.0, 1.6], [-0.05, 1.6]]
+    material: metal
+    at: [0, 1.3, 0]
+"""
+    asset = load_asset_text(text, scratch / "wedge2.yaml", ROOT)
+    vr = render_raw(asset, ["right"], 128, scale_figure=False, ground=False)["right"]
+    ys, xs = np.nonzero(vr.coverage)
+    top, bottom = ys.min(), ys.max()
+    width = lambda r: np.count_nonzero(vr.coverage[r]) * vr.mpp
+    assert width(bottom - 1) == pytest.approx(0.2, abs=0.02) and width(top + 1) == pytest.approx(0.05, abs=0.02)
+    meshes = build_meshes(asset, 64)
+    assert all(open_ == 0 and bad == 0 for _, open_, bad in edge_report(meshes))
+
+
 @pytest.mark.parametrize("raw, message", [
     ({"points": [[0, 0], [1, 0]], "depth": 0.1}, "list of 3 to 64"),
+    ({"points": L_SHAPE}, "needs 'depth' (or 'side'"),
+    ({"points": FRONT, "side": SIDE, "depth": 0.1}, "give 'depth' or 'side', not both"),
+    ({"points": FRONT, "side": [[0, 2], [0.1, 2], [0.1, 2.5]]}, "shares no height"),
+    ({"points": FRONT, "side": [[0, 1], [0.1, 1.5], [0.1, 1], [0, 1.5]]}, "crosses itself"),
+    ({"points": FRONT, "side": SIDE, "round": 0.11}, "round 0.11 is larger"),
     ({"points": [[0, 0], [1, 0], [2, 0]], "depth": 0.1}, "no area"),
     ({"points": [[0, 0], [1, 1], [1, 0], [0, 1]], "depth": 0.1}, "crosses itself"),
     ({"points": L_SHAPE, "depth": 0}, "depth must be > 0"),

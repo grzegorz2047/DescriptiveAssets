@@ -214,3 +214,82 @@ def test_cli_trace(scratch):
     proc = _run("structure", str(scratch / "panel_cli_trace.yaml"), "--res", "256", "--trace", "R1,R2,R3", "--depth", "0.02")
     assert proc.returncode == 0, proc.stderr
     assert "shape: extrude" in proc.stdout and "depth: 0.02" in proc.stdout
+
+
+def test_trace_skips_regions_on_curved_surfaces(scratch):
+    """max_relief: a flat plate is not traced onto a surface whose depth varies more than that."""
+    asset = _write_asset(scratch, "panel_relief")
+    text = (scratch / "panel_relief.yaml").read_text(encoding="utf-8")
+    text = text.replace("shape: box\n    size: [0.81, 1.21, 0.06]", "shape: box\n    size: [0.81, 1.21, 0.06]\n    rotate: [40, 0, 0]")
+    (scratch / "panel_relief.yaml").write_text(text, encoding="utf-8")
+    asset = load_asset(scratch / "panel_relief.yaml", ROOT)
+    rep = st.compare_structure(asset, res=256)
+    plates = [r["id"] for r in rep["regions"] if r["class"] == "bright" and r["share"] > 0.05]
+    flat = st.trace_regions(asset, plates, res=256, depth=0.008)
+    picky = st.trace_regions(asset, plates, res=256, depth=0.008, max_relief=0.05)
+    assert flat["parts"] and not picky["parts"]
+    assert picky["skipped"] and all(relief > 0.05 for _, relief in picky["skipped"])
+
+
+def _write_view_asset(scratch, name, view):
+    """The panel picture as a back or right reference: plates behind (back) or on +x (right) of a wall."""
+    (scratch / "refs").mkdir(exist_ok=True)
+    draw_panel().save(scratch / "refs" / "panel.png")
+    if view == "back":
+        frame, plate = "[2.0, 2.0, 0.2]", "size: [0.81, 1.21, 0.06]\n    at: [-0.495, 1.3, -0.12]\n    mirror: x"
+    else:
+        frame, plate = "[0.2, 2.0, 2.0]", "size: [0.06, 1.21, 0.81]\n    at: [0.12, 1.3, -0.495]\n    mirror: z"
+    text = (f"asset: {name}\nstyle: default\nreference: {{image: refs/panel.png, view: {view}, height: 2.0}}\n"
+            f"parts:\n  - name: frame\n    shape: box\n    size: {frame}\n    material: iron\n    at: [0, 0, 0]\n"
+            f"    align: bottom\n  - name: plate_a\n    shape: box\n    {plate}\n    material: metal\n")
+    path = scratch / f"{name}.yaml"
+    path.write_text(text, encoding="utf-8")
+    return load_asset(path, ROOT)
+
+
+@pytest.mark.parametrize("view", ["back", "right"])
+def test_trace_from_back_and_side_pictures(scratch, view):
+    """Parts traced from a back or side picture face that camera and sit on the model's surface there."""
+    asset = _write_view_asset(scratch, f"panel_{view}", view)
+    rep = st.compare_structure(asset, res=256)
+    plates = [r["id"] for r in rep["regions"] if r["class"] == "bright" and r["share"] > 0.05]
+    result = st.trace_regions(asset, plates, res=256, depth=0.03)
+    assert result["parts"] and all(part["mirror"] for part in result["parts"])
+    for part in result["parts"]:
+        assert part["name"].startswith(f"plate_{view}_")
+        if view == "back":  # one mirrored pair, on the back plates (z -0.15), sunk 1 cm
+            assert part["rotate"] == [0, 180.0, 0] and part["at"][0] < 0
+            assert part["at"][2] == pytest.approx(-(0.15 + 0.015 - 0.01), abs=0.02)
+        else:  # the camera's side (+x) with mirror: x for the other
+            assert part["rotate"] == [0, 90.0, 0] and part["at"][0] == pytest.approx(0.155, abs=0.02)
+    assert len(result["parts"]) == (1 if view == "back" else 2)
+    path = scratch / f"panel_{view}.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + result["yaml"], encoding="utf-8")
+    loaded = load_asset(path, ROOT)
+    traced = [p for p in loaded.scene().parts if p.name.startswith(f"plate_{view}_")]
+    lo, hi = traced[0].world_aabb()
+    pts = np.array(result["parts"][0]["points"])
+    w, h = pts.max(axis=0) - pts.min(axis=0)
+    assert (hi - lo)[1] == pytest.approx(h, abs=0.01) and w == pytest.approx(0.81, abs=0.04)
+
+
+def test_trace_conform_bends_the_plate_along_the_surface(scratch):
+    """--conform: a side outline that follows a tilted surface instead of a flat plate in front of it."""
+    _write_asset(scratch, "panel_conform")
+    text = (scratch / "panel_conform.yaml").read_text(encoding="utf-8")
+    text = text.replace("shape: box\n    size: [0.81, 1.21, 0.06]", "shape: box\n    size: [0.81, 1.21, 0.06]\n    rotate: [20, 0, 0]")
+    (scratch / "panel_conform.yaml").write_text(text, encoding="utf-8")
+    asset = load_asset(scratch / "panel_conform.yaml", ROOT)
+    rep = st.compare_structure(asset, res=256)
+    plates = [r["id"] for r in rep["regions"] if r["class"] == "bright" and r["share"] > 0.05]
+    flat = st.trace_regions(asset, plates, res=256, depth=0.02)
+    bent = st.trace_regions(asset, plates, res=256, depth=0.02, conform=True)
+    assert flat["parts"][0]["side"] is None and "depth: 0.02" in flat["yaml"]
+    side = np.array(bent["parts"][0]["side"])
+    assert "side: [" in bent["yaml"]
+    top, bottom = side[side[:, 1] > 0.4], side[side[:, 1] < -0.4]
+    assert top[:, 0].max() - bottom[:, 0].max() > 0.15  # the tilted plate leans forward at the top
+    assert side[:, 0].max() - side[:, 0].min() > 0.15 + 0.02
+    path = scratch / "panel_conform.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + bent["yaml"], encoding="utf-8")
+    load_asset(path, ROOT)

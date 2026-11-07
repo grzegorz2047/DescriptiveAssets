@@ -33,9 +33,9 @@ SHAPES: dict[str, tuple[tuple[str, ...], dict]] = {
     "capsule": (("radius", "height"), {}),
     "torus": (("radius", "thickness"), {}),
     "wedge": (("size",), {}),
-    "extrude": (("points", "depth"), {"round": 0.0}),
+    "extrude": (("points",), {"depth": None, "side": None, "round": 0.0}),
 }
-PARAM_KEYS = ("size", "radius", "height", "top_radius", "sides", "round", "thickness", "points", "depth")
+PARAM_KEYS = ("size", "radius", "height", "top_radius", "sides", "round", "thickness", "points", "depth", "side")
 EXTRUDE_MAX_POINTS = 64
 SHAPE_USAGE = {
     "box": "size: [w, h, d], optional round: r",
@@ -47,7 +47,8 @@ SHAPE_USAGE = {
     "torus": "radius: R (ring center), thickness: t (tube radius)",
     "wedge": "size: [w, h, d] (full height at the back, slope to the front)",
     "extrude": "points: [[x, y], ...] (an outline in the XY plane, as seen from the front: 3..64 points, no "
-               "crossing edges), depth: d (along Z), optional round: r",
+               "crossing edges), depth: d (along Z) or side: [[z, y], ...] (the outline seen from the side, "
+               "same y as points), optional round: r",
 }
 
 ANCHOR_WORDS = {
@@ -138,27 +139,31 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
     for key in required:
         if key not in raw or raw[key] is None:
             fail(None, f"shape '{shape}' needs '{key}'", usage)
+    outlines: dict = {}
     for key in required + tuple(optional):
         value = raw.get(key, optional.get(key))
+        if shape == "extrude" and key in ("depth", "side") and value is None:
+            params[key] = None
+            continue
         if key == "size":
             if not (isinstance(value, (list, tuple)) and len(value) == 3 and all(_is_number(v) for v in value)):
                 fail(key, f"size must be a list of 3 numbers [w, h, d], got {value!r}", usage)
             if any(v <= 0 for v in value):
                 fail(key, f"size must be > 0 in every axis, got {list(value)}", "sizes are full extents in meters")
             params[key] = tuple(float(v) for v in value)
-        elif key == "points":
+        elif key in ("points", "side"):
+            pair = "[x, y]" if key == "points" else "[z, y]"
             ok = isinstance(value, (list, tuple)) and 3 <= len(value) <= EXTRUDE_MAX_POINTS and all(
                 isinstance(pt, (list, tuple)) and len(pt) == 2 and all(_is_number(c) for c in pt) for pt in value)
             if not ok:
-                fail(key, f"points must be a list of 3 to {EXTRUDE_MAX_POINTS} [x, y] pairs, got {value!r}", usage)
+                fail(key, f"{key} must be a list of 3 to {EXTRUDE_MAX_POINTS} {pair} pairs, got {value!r}", usage)
             pts = np.array(value, dtype=np.float64)
             area = 0.5 * float(np.sum(pts[:, 0] * np.roll(pts[:, 1], -1) - np.roll(pts[:, 0], -1) * pts[:, 1]))
             if _self_intersects(pts):
                 fail(key, "the outline crosses itself", "list the corners in order around the outline")
             if abs(area) < 1e-8:
-                fail(key, "points enclose no area (all on one line?)", "give the outline's corners in order around it")
-            center = (pts.min(axis=0) + pts.max(axis=0)) / 2.0  # the shape's local frame is its bbox center
-            params[key] = tuple((float(x), float(y)) for x, y in pts - center)
+                fail(key, f"{key} enclose no area (all on one line?)", "give the outline's corners in order around it")
+            outlines[key] = pts
         elif key == "sides":
             if isinstance(value, bool) or not isinstance(value, int) or (value != 0 and value < 3):
                 fail(key, f"sides must be an integer >= 3, got {value!r}", "omit sides for a round shape")
@@ -173,6 +178,8 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
             elif value <= 0:
                 fail(key, f"{key} must be > 0, got {value:g}", usage)
             params[key] = value
+    if shape == "extrude":
+        _center_outlines(params, outlines, fail)
     # Cross-parameter limits.
     rnd = params.get("round", 0.0)
     if shape == "box" and rnd > min(params["size"]) / 2:
@@ -187,12 +194,57 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
     if shape == "extrude":
         pts = np.array(params["points"])
         limit = min(params["depth"] / 2, float((pts.max(axis=0) - pts.min(axis=0)).min()) / 2)
+        if params["side"] is not None:
+            sd = np.array(params["side"])
+            limit = min(limit, float((sd.max(axis=0) - sd.min(axis=0)).min()) / 2)
         if rnd > limit:
-            fail("round", f"round {rnd:g} is larger than allowed {limit:g}", "round must be <= depth / 2 and the outline's half width")
+            fail("round", f"round {rnd:g} is larger than allowed {limit:g}",
+                 "round must be <= depth / 2 and each outline's half width")
     if shape == "capsule" and params["height"] < 2 * params["radius"] - 1e-9:
         fail("height", f"capsule height {params['height']:g} is less than 2 * radius ({2 * params['radius']:g})",
              "height is the total length including both caps; use a sphere for height = 2 * radius")
     return params
+
+
+def _center_outlines(params: dict, outlines: dict, fail) -> None:
+    """Extrude outlines in the shape's local frame, the center of its bounding box.
+
+    Without `side` the outline is re-centred on its bbox and `depth` is required. With `side` (the
+    outline seen from the side, [z, y], sharing y with `points`) the shape is the intersection of the
+    two extrusions: x is centred on `points`, z on `side`, y on the heights both outlines share, and
+    `depth` is the side outline's depth.
+    """
+    pts, side = outlines["points"], outlines.get("side")
+    if side is None:
+        if params.get("depth") is None:
+            fail(None, "shape 'extrude' needs 'depth' (or 'side', the outline seen from the side)",
+                 "depth: d (along Z), or side: [[z, y], ...]")
+        center = (pts.min(axis=0) + pts.max(axis=0)) / 2.0
+        params["points"] = tuple((float(x), float(y)) for x, y in pts - center)
+        return
+    if params.get("depth") is not None:
+        fail("depth", "give 'depth' or 'side', not both", "the side outline sets the depth")
+    lo, hi = max(pts[:, 1].min(), side[:, 1].min()), min(pts[:, 1].max(), side[:, 1].max())
+    if hi - lo <= 1e-6:
+        fail("side", f"the side outline (y {side[:, 1].min():g}..{side[:, 1].max():g}) shares no height with "
+             f"the points (y {pts[:, 1].min():g}..{pts[:, 1].max():g})",
+             "give both outlines in the same y (e.g. world heights)")
+    cx = (pts[:, 0].min() + pts[:, 0].max()) / 2.0
+    cz = (side[:, 0].min() + side[:, 0].max()) / 2.0
+    cy = (lo + hi) / 2.0
+    params["points"] = tuple((float(x - cx), float(y - cy)) for x, y in pts)
+    params["side"] = tuple((float(z - cz), float(y - cy)) for z, y in side)
+    params["depth"] = float(side[:, 0].max() - side[:, 0].min())
+
+
+def _extrude_height(params: dict) -> tuple[float, float]:
+    """Local y range of an extrude: the outline's, or with `side` the heights both outlines share."""
+    pts = np.array(params["points"], dtype=np.float64)
+    lo, hi = float(pts[:, 1].min()), float(pts[:, 1].max())
+    if params.get("side") is not None:
+        sd = np.array(params["side"], dtype=np.float64)
+        lo, hi = max(lo, float(sd[:, 1].min())), min(hi, float(sd[:, 1].max()))
+    return lo, hi
 
 
 def _self_intersects(pts: np.ndarray) -> bool:
@@ -220,7 +272,8 @@ def local_half_extents(shape: str, params: dict) -> np.ndarray:
         return np.array(params["size"], dtype=np.float64) / 2.0
     if shape == "extrude":
         pts = np.array(params["points"], dtype=np.float64)
-        return np.array([*(pts.max(axis=0) - pts.min(axis=0)) / 2.0, params["depth"] / 2.0])
+        lo, hi = _extrude_height(params)
+        return np.array([(pts[:, 0].max() - pts[:, 0].min()) / 2.0, (hi - lo) / 2.0, params["depth"] / 2.0])
     if shape == "sphere":
         return np.full(3, params["radius"], dtype=np.float64)
     if shape in ("cylinder", "capsule"):
@@ -378,6 +431,11 @@ class Part:
             return signs * h, r
         if self.shape == "extrude":
             hz = p["depth"] / 2.0
+            if p.get("side") is not None:  # inside the box both outlines span
+                hx = local_half_extents("extrude", p)[0]
+                lo, hi = _extrude_height(p)
+                return np.array([[sx * hx, y, sz * hz] for sx in (-1, 1) for y in (lo, hi) for sz in (-1, 1)],
+                                dtype=np.float64), 0.0
             return np.array([[x, y, z] for z in (-hz, hz) for x, y in p["points"]], dtype=np.float64), 0.0
         if self.shape == "wedge":
             hx, hy, hz = (v / 2.0 for v in p["size"])

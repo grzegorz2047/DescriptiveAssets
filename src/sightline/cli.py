@@ -505,7 +505,7 @@ def cmd_structure(args) -> int:
         if pathlib.Path(target).suffix.lower() in IMAGE_SUFFIXES:
             raise SightlineError("--trace needs an asset", hint="trace places the plates on the model: sightline structure <asset> --trace R12")
         ids = [s.strip().upper() if s.strip().lower() != "disagree" else "disagree" for s in args.trace.split(",") if s.strip()]
-        result = st.trace_regions(asset, ids, args.index, res=args.res, depth=args.depth)
+        result = st.trace_regions(asset, ids, args.index, res=args.res, depth=args.depth, conform=args.conform)
         print(f"# {len(result['parts'])} extrude part(s) traced from {asset.name}'s reference picture; paste them under parts:")
         sys.stdout.write(result["yaml"])
         return EXIT_OK
@@ -643,7 +643,7 @@ def cmd_styles(args) -> int:
 _SHAPE_BBOX = {
     "box": "w, h, d", "sphere": "2r, 2r, 2r", "ellipsoid": "w, h, d", "cylinder": "2r, h, 2r",
     "cone": "2 max(r, top_radius), h, 2 max(r, top_radius)", "capsule": "2r, h, 2r",
-    "torus": "2(R+t), 2t, 2(R+t)", "wedge": "w, h, d", "extrude": "outline width, outline height, depth",
+    "torus": "2(R+t), 2t, 2(R+t)", "wedge": "w, h, d", "extrude": "outline width, shared height, depth",
 }
 
 _SHAPES_TEXT = """\
@@ -692,7 +692,8 @@ def cmd_shapes(args) -> int:
     print("  sides: n makes a regular n-gon prism / pyramid with a flat face toward +Z; radius is the circumradius")
     print("  wedge: full height at the back (-Z), sloping to 0 at the front edge (+Z)")
     print("  extrude: the outline's points are re-centred on their bounding box; `sightline structure <asset> --trace R12`")
-    print("           writes extrude parts traced from the reference picture's regions")
+    print("           writes extrude parts traced from the reference picture's regions; with side: [[z, y], ...]")
+    print("           (the outline seen from the side, same y) the part is what both outlines allow (front and side views)")
     print()
     sys.stdout.write(_SHAPES_TEXT)
     return EXIT_OK
@@ -795,6 +796,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--trace", help="asset only: print extrude parts traced from these picture regions "
                                     "(comma-separated ids such as R12,R15, or 'disagree')")
     sp.add_argument("--depth", type=float, default=0.03, help="--trace: plate thickness in m (default 0.03)")
+    sp.add_argument("--conform", action="store_true",
+                    help="--trace: the plates follow the model's surface from top to bottom (a side outline) "
+                         "instead of standing flat")
     sp.add_argument("--out", help="output folder or PNG path")
     sp.add_argument("--json", action="store_true")
 
