@@ -590,6 +590,40 @@ def cmd_fit(args) -> int:
     return EXIT_FAIL if rep.get("refused") else EXIT_OK
 
 
+def cmd_carve(args) -> int:
+    from .carve import carve_asset, format_carve
+    from .fit import edit_yaml
+
+    asset = _load(args.asset, args)
+    if args.write and args.out:
+        raise SightlineError("use --write or --out, not both", hint="--write changes the asset file; --out PATH writes a copy")
+    if args.no_cuts and args.no_fills:
+        raise SightlineError("--no-cuts and --no-fills leave nothing to do")
+
+    def log(msg):
+        print(f"carve: {msg}", file=sys.stderr, flush=True)
+
+    rep = carve_asset(asset.path, asset.root, res=args.res, cuts=not args.no_cuts, fills=not args.no_fills,
+                      checks=not args.no_check, log=log)
+    target = pathlib.Path(asset.path) if args.write else (pathlib.Path(args.out) if args.out else None)
+    ck = rep.get("checks")
+    if target is not None and ck and ck["new_failures"] and not args.force:
+        rep["refused_write"] = "a check that passed before fails now (--force writes anyway)"
+        target = None
+    if target is not None:
+        text = rep["text"]
+        if target.resolve() != pathlib.Path(asset.path).resolve():
+            text = edit_yaml(text, {("asset",): target.stem})
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        rep["written"] = _show(target)
+    if args.json:
+        _json({k: v for k, v in rep.items() if k != "text"})
+    else:
+        sys.stdout.write(format_carve(rep))
+    return EXIT_FAIL if rep.get("refused_write") else EXIT_OK
+
+
 def cmd_match(args) -> int:
     from .reference import fit_view, format_fit, format_match, match_asset
 
@@ -851,6 +885,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", help="write a fitted copy to this path instead (its asset: name follows the file name)")
     sp.add_argument("--outline-only", action="store_true",
                     help="score the outline IoU alone (default: IoU, classes and divisions as structure measures them)")
+    sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")
+    sp.add_argument("--force", action="store_true", help="write even if a check that passed before fails now")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("carve", cmd_carve, "cut away what sticks out of the reference pictures (op: cut prisms over a conservative "
+                                 "outline) and fill what they all show; keeps a piece only if the fitting score rises")
+    sp.add_argument("asset")
+    sp.add_argument("--res", type=int, default=512, help="render size of the comparison (default 512)")
+    sp.add_argument("--no-cuts", action="store_true", help="only fill")
+    sp.add_argument("--no-fills", action="store_true", help="only cut")
+    sp.add_argument("--write", action="store_true", help="add the kept pieces to the asset file (comments kept)")
+    sp.add_argument("--out", help="write a carved copy to this path instead (its asset: name follows the file name)")
     sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")
     sp.add_argument("--force", action="store_true", help="write even if a check that passed before fails now")
     sp.add_argument("--json", action="store_true")

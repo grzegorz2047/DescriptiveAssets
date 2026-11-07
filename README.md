@@ -184,7 +184,8 @@ usuwa. Robot dostał więc cięcia `op: cut` przez całe ciało tam, gdzie wysta
 wypełnienia tam, gdzie wszystkie obrazki pokazują bryłę, a modelu brakuje. Każde cięcie i wypełnienie
 przeszło przez tego samego strażnika co fitter. Obrys wzrósł do IoU 0,95/0,95/0,94/0,95, a materiały
 i podziały zostały bez zmian (`out/robot/views4_r23.png`). Kosztem są dłuższe kontrole robota
-(ok. 3,5 minuty zamiast 2).
+(ok. 3,5 minuty zamiast 2). Robi to polecenie `sightline carve <asset> --out ...` dla każdego zasobu
+z obrazkami z przodu, z tyłu lub z boku.
 
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z

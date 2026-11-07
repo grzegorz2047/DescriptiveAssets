@@ -942,6 +942,7 @@ sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto|lit
 sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
 sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--outline-only]
               [--write | --out PATH] [--no-check] [--force] [--json]   # exit 1 when a check newly fails
+sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--write | --out PATH] [--no-check] [--force] [--json]
 sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS|disagree|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
@@ -1261,6 +1262,38 @@ azimuth a and −a give mirror images of symmetric objects).
   (axes, kept entries), `checks`, `trials`, `seconds` and `text`.
 - CLI: dry run by default; `--write` rewrites the asset file, `--out` writes a copy (asset name =
   file stem); with new check failures neither writes without `--force` and the exit code is 1.
+
+### 12.6 Carving (`carve.py`) — `carve_asset(path, root=None, *, res=512, cuts=True, fills=True, checks=True, log=None) -> dict`
+
+- Setup as `fit` (`_setup_view` with picture structure, the guarded score, `symmetry_axes`).
+- `_Plane` per direction (`PLANES`: z = front/back, x = right/left) on its first view's camera grid at
+  `UP` = 4: world points, `union` and `inter` of the pictures' shares (other views sampled at the
+  world points, nearest pixel; with an x symmetry also at x mirrored), the model's share (bilinear),
+  the picture classes. A z plane of a symmetric asset works on its x <= 0 half and writes `mirror: x`.
+- Pieces (`_pieces`): connected components of a mask with at least `MIN_PIECE_PX` = 6 camera px of
+  weight; a component enclosing a hole of `MIN_HOLE_UP_PX` or more, or whose outline needs more than
+  `MAX_POINTS` = 64 corners (the extrude limit) at `TRACE_EPS` = 1.2 quarter px, is halved along its longer side (up to
+  `MAX_SPLIT` = 8 times). Cuts: the frame (union or model, grown 2 px) minus the union, weighted by
+  the model's share. Fills: intersection and no model (< 0.5), weighted by area.
+- Entries: cut = extrude, `op: cut`, depth = the model's extent along the direction + 2 `DEPTH_MARGIN`
+  (z prisms at the model's z centre; x prisms `rotate: [0, 90, 0]`, outline u = -z). Fill = extrude
+  with `points` and `side` (the other plane's intersection between the piece's heights, largest
+  component) or, without the other direction, the model's depth; material `_class_material` (the
+  material the model shows most on pixels of that class in the view, else iron/metal/glow_blue).
+  Names `carve_front<k>`, `carve_side<k>`, `fill_front<k>`, `fill_side<k>` (+ `_l` when mirrored),
+  never taken.
+- `_reached`: a cut lists the earlier solids it reaches (`_touches`: a `TOUCH_STEP` = 4 mm grid over
+  the overlap of their boxes, a point within 0.9 step of both), none: refused.
+- Trials (`_trial_add`): the entry appended; windows of the added parts' boxes re-rendered as in
+  `fit`; `material_classes` recomputed. Kept when the mean score rises by `MIN_GAIN` and every view
+  stays at or above its start minus `FLOOR_TOL`. Every candidate is first scored alone (cuts with their
+  `from:` list); those that raise the score go in by gain per part (a mirrored piece costs two), two passes.
+- Checks (`_keep_checks`): newly floating pieces (and the part each hung on, and their mirror twins)
+  come off the kept cuts' `from:` lists, a floating fill is dropped, up to 3 times.
+- Report: per view `iou_before`/`iou_after` (match), `structure_before`/`structure_after`,
+  `score_start`/`score_after`; `kept` (name, kind, mirror, material, from count), `refused` (name, why),
+  `candidates`, `checks`, `symmetry`, `trials`, `seconds`, `text` (the entries appended to `parts:`
+  as one-line flow mappings under a comment, before `checks:`). CLI as `fit`.
 
 ## 13. Import (`importer.py`)
 

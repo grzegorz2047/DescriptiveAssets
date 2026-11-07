@@ -486,6 +486,37 @@ Fit after the shapes are right and before the last colour pass: it refines outli
 centimetre or two, it does not add missing parts, and painted zones (`op: paint`) stay where they
 are. Run `structure --trace fix --paint` per view afterwards for the patches that are left.
 
+### 5.4 Carving to the pictures (`sightline carve`)
+
+`sightline carve <asset> [--res 512] [--no-cuts] [--no-fills] [--write | --out PATH] [--no-check] [--force]
+[--json]` removes what sticks out of the pictures and adds what they all show, without moving any part:
+
+- **Cuts.** For each viewing direction (front and back pictures: prisms along z; right and left: along
+  x) the outline is the union of its pictures, plus their mirror images across x = 0 when the asset
+  has a `symmetric` check, so a cut never removes what any picture shows. What lies outside it, within
+  the frame of the pictures and the model, is split into pieces traced at a quarter pixel (a piece
+  that surrounds part of the outline, or needs more than 64 corners, is halved until it does not);
+  each piece that holds at least 6 px of model becomes an `op: cut` extrude through the whole body,
+  written on the -x side with `mirror: x` for a symmetric asset. Its `from:` lists only the solids it
+  really reaches: every listed solid tests the outline at every ray step, so render and check time
+  grows with long lists.
+- **Fills.** Where the intersection of the pictures shows the object and the model has nothing, an
+  extrude fills the piece: its outline in this direction, and across it the other direction's
+  pictures between the piece's heights (a piece of the visual hull), else the model's whole depth.
+  Its material is the model's material of the picture's class there.
+- Each piece is scored alone with `fit`'s guarded score (the mean of outline IoU, classes and
+  divisions); those that raise it go in by gain per part (`MAX_PARTS` = 256 solids and cuts, a
+  mirrored piece costs two), each kept only if the score still rises and no view ends more than
+  0.0005 below its start; a second pass retries the refused ones.
+- Checks run before and after: a part left floating comes off the cut's `from:` list together with the
+  part it hung on (a floating fill is dropped); checks that newly fail stop `--write`/`--out` unless
+  `--force` (exit code 1). The pieces are appended to `parts:` as one-line entries under a comment.
+
+Carve after the shapes and numbers are right: it fixes the outline to the pictures exactly where the
+model sticks out, which `fit` cannot do without moving the plates around it. The robot went from IoU
+0.928 / 0.930 / 0.927 / 0.938 to 0.948 / 0.951 / 0.937 / 0.947 (front, back, right, left) this way,
+classes and divisions unchanged; its checks take about twice as long.
+
 ## 6. Levels
 
 `levels/<name>.yaml`: a grid of columns of terrain, read by a navigation bot. The two examples are
@@ -585,6 +616,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png`; `CEILING` when a picture from the opposite side exists |
 | `sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--outline-only] [--write\|--out PATH] [--no-check] [--force] [--json]` | part numbers moved toward the pictures (section 5.3); a dry run unless `--write` or `--out` |
+| `sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--write\|--out PATH] [--no-check] [--force] [--json]` | cuts over what sticks out of the pictures and fills of what they all show (section 5.4); a dry run unless `--write` or `--out` |
 | `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS\|disagree\|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |
