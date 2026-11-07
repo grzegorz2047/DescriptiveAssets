@@ -257,3 +257,28 @@ def test_stacked_decal_discs_render_whole_not_as_crescents():
     # Silhouettes keep the coarse threshold: the wing alone covers what it covered before.
     _, alone = render(Scene([wing, *discs], solids=[0]), "top", 128)
     assert abs(int(alone.hit.sum()) - int(vb.hit.sum())) <= 4
+
+
+def test_culled_cutters_are_exact_near_the_surface_and_a_lower_bound_far_away():
+    """With `cull`, a hard union skips a cutter where its part alone is already more than `cull` away (and,
+    as before, deeper than `cull` inside a part away from the cutter's box): values within `cull` of the
+    surface stay exact, outside ones never drop below `cull` nor exceed the exact distance, so hits and
+    sphere-tracing steps stay safe."""
+    a = load_asset(FIX / "tower30.yaml", ROOT)
+    scene = a.scene()
+    rng = np.random.default_rng(3)
+    lo, hi = scene.bounds()
+    p3 = rng.uniform(lo - 0.5, hi + 0.5, size=(4000, 3)).T.astype(np.float32)
+    cull = 0.05
+    checked = 0
+    for g in scene.groups:
+        if not any(scene.cutters.get(m) for m in g.members):
+            continue
+        exact = scene.group_dist3(g, np.ascontiguousarray(p3))
+        fast = scene.group_dist3(g, np.ascontiguousarray(p3), cull)
+        near = np.abs(exact) <= cull
+        out = exact > cull
+        assert np.array_equal(fast[near], exact[near])
+        assert np.all(fast[out] <= exact[out] + 1e-6) and np.all(fast[out] > cull - 1e-6)
+        checked += int(near.sum())
+    assert checked > 50  # enough sample points landed near the cut surfaces

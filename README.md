@@ -178,6 +178,14 @@ punktów, a liczby rundy 21 (94–98%) były przez to zawyżone; na stabilnym od
 materiały 97/98/97/97% i podziały 97/85/88/91% (przód, tył, prawy, lewy;
 `out/robot/views4_r22.png`).
 
+**Rzeźbienie.** Połowa błędu obrysu to model wystający poza obrazek, a dokładanie części tego nie
+usuwa. Robot dostał więc cięcia `op: cut` przez całe ciało tam, gdzie wystaje poza zachowawczy obrys
+(suma przodu, odbitego tyłu i ich lustrzanych odbić; z boku suma prawego i odbitego lewego), oraz
+wypełnienia tam, gdzie wszystkie obrazki pokazują bryłę, a modelu brakuje. Każde cięcie i wypełnienie
+przeszło przez tego samego strażnika co fitter. Obrys wzrósł do IoU 0,95/0,95/0,94/0,95, a materiały
+i podziały zostały bez zmian (`out/robot/views4_r23.png`). Kosztem są dłuższe kontrole robota
+(ok. 3,5 minuty zamiast 2).
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z

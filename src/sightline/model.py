@@ -660,9 +660,13 @@ class Scene:
 
     # -- evaluation on (3, N) float32 points
 
-    def part_dist3(self, i: int, p3: np.ndarray, cull: float | None = None) -> np.ndarray:
+    def part_dist3(self, i: int, p3: np.ndarray, cull: float | None = None, outside_bound: bool = False) -> np.ndarray:
         """Part i with its cutters applied. `cull` (m): skip a cutter for points farther than this
-        outside its AABB — exact outside the part, and only changes values deeper inside it than `cull`."""
+        outside its AABB — exact outside the part, and only changes values deeper inside it than `cull`.
+        With `outside_bound` also skip the cutters where the part alone is already more than `cull` away:
+        a cut only raises the distance, so the part's own value is a lower bound there and no point within
+        `cull` of the surface changes (sphere tracing stays safe; only hard unions may use it, see
+        group_dist3)."""
         d = self.parts[i].sdf3(p3)
         for c in self.cutters.get(i, ()):
             cutter = self.parts[c]
@@ -672,6 +676,8 @@ class Scene:
             lo, hi = self._aabb[c]
             lo32, hi32 = (lo - cull).astype(F32)[:, None], (hi + cull).astype(F32)[:, None]
             near = np.all((p3 >= lo32) & (p3 <= hi32), axis=0)
+            if outside_bound:
+                near &= d <= cull
             if near.all():
                 d = np.maximum(d, -cutter.sdf3(p3))
             elif near.any():
@@ -680,13 +686,18 @@ class Scene:
         return d
 
     def group_dist3(self, g: Group, p3: np.ndarray, cull: float | None = None, need_part: bool = False):
-        """Distance of a group at (3, N) points; with need_part also the nearest member index."""
+        """Distance of a group at (3, N) points; with need_part also the nearest member index.
+
+        With `cull`, a hard union (no smooth blend) skips cutters far outside each member
+        (`part_dist3(outside_bound=True)`): the minimum of lower bounds above `cull` stays above it. A
+        smooth blend mixes values up to its radius away, so blended groups keep every cutter exact."""
         if len(g.members) == 1:
-            d = self.part_dist3(g.members[0], p3, cull)
+            d = self.part_dist3(g.members[0], p3, cull, outside_bound=cull is not None)
             if need_part:
                 return d, np.full(d.shape, g.members[0], dtype=np.int32)
             return d
-        dists = [self.part_dist3(m, p3, cull) for m in g.members]
+        hard = cull is not None and max(g.blend_k.values(), default=0.0) <= 0.0
+        dists = [self.part_dist3(m, p3, cull, outside_bound=hard) for m in g.members]
         acc = dists[0]
         for m, dm in zip(g.members[1:], dists[1:]):
             acc = sdf.smin(acc, dm, g.blend_k.get(m, 0.0))

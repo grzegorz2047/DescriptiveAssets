@@ -393,7 +393,14 @@ Implementation notes (additive API, all in use by other modules):
   plus a line map) and `style.resolve_root(root, start)` are public.
 - `sdf.polygon2` takes every edge at once (edges x points arrays) for up to `POLY_BATCH` = 4096
   points and loops over the edges above that; both give the same float32 values. Sphere tracing
-  calls it with a few hundred points per step, where the loop cost more than the arithmetic.
+  calls it with a few hundred points per step, where the loop cost more than the arithmetic. The
+  edge data of an outline is computed once and cached by the outline object (`_poly_edges`; a part
+  keeps its outline as a tuple of pairs for its lifetime).
+- `Scene.part_dist3(..., cull, outside_bound=True)` also skips a cutter where the part alone is already
+  more than `cull` away: a cut only raises the distance, so the part's value is a lower bound there and
+  nothing within `cull` of the surface changes. `group_dist3` uses it whenever `cull` is given and the
+  group has no smooth blend (a blend mixes values up to its radius away); `march`/`trace` pass `cull`,
+  so hits, depths and normals are unchanged (tested against exact values).
 
 ## 6. Geometry passes
 

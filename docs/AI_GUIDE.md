@@ -179,6 +179,21 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      0.935 -> 0.928 / 0.930 / 0.927 / 0.938 IoU with every class and division share up, then the
      paint pass took classes to 97 / 98 / 97 / 97% (front, back, right, left). Outline-only reached
      0.950 / 0.946 but hid a back light behind the chest, and fit refused to write it.
+   - About half of an outline error is model sticking out, which no added part removes. Carve it: an
+     `op: cut` extrude through the whole body over each piece that lies outside a conservative
+     outline (front: the front picture, the back one mirrored and both mirrored across x = 0 for a
+     symmetric asset, cut on one side with `mirror: x`; sides: the right picture and the left one
+     mirrored, rotate [0, 90, 0]). Trace each piece at a quarter pixel, list in `from:` only the
+     solids it really reaches (every solid it touches costs a polygon test per ray step), and keep a
+     cut only if the mean of IoU, classes and divisions rises with no view below its start. Fill what
+     every picture shows and the model lacks with an extrude whose front outline is the missing piece
+     and whose side outline is what the side pictures allow there, in the picture's class material.
+     The robot went from IoU 0.928 / 0.930 / 0.927 / 0.938 to 0.948 / 0.951 / 0.937 / 0.947 with 13
+     cuts and 4 fills, classes and divisions unchanged; its checks take about 3.5 minutes instead of 2.
+   - A rebuild from the pictures as one traced shell per body segment (another agent's robot) reached
+     IoU 0.953 / 0.957 / 0.944 / 0.948 but classes 88-95% and divisions 80-84%: shells cover the plates
+     and their seams do not follow the panel lines. Adding such shells to a plated model raised IoU by
+     under 0.002 for the same reason; carving the plated model got the outline without that cost.
    - Pictures pasted into chat may have transparent backgrounds: keep the alpha when you copy them
      into `refs/` (save as RGBA PNG), or the background turns black.
    - Picture colours are lit: a white wing seen from below measures dark grey. Ask about paint and

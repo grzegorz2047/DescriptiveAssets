@@ -152,6 +152,28 @@ def wedge(x, y, z, hx: float, hy: float, hz: float):
 
 
 POLY_BATCH = 4096  # up to this many points, polygon2 takes all edges at once (edges x points arrays)
+_EDGE_CACHE: dict[int, tuple] = {}  # id(outline) -> (the outline, its edge data); the entry keeps it alive
+
+
+def _poly_edges(verts):
+    """Edge data of a polygon, computed once per vertex array: (v float64, ex, ey, ee, ax, ay, by as float32
+    rows, and the same as (E, 1) columns)."""
+    hit = _EDGE_CACHE.get(id(verts))
+    if hit is not None and hit[0] is verts:
+        return hit[1]
+    v = np.asarray(verts, dtype=np.float64)
+    nxt = np.roll(v, -1, axis=0)
+    ex = (nxt[:, 0] - v[:, 0]).astype(F32)  # edge vectors, rounded from float64 like the vertices
+    ey = (nxt[:, 1] - v[:, 1]).astype(F32)
+    ax, ay, by = v[:, 0].astype(F32), v[:, 1].astype(F32), nxt[:, 1].astype(F32)
+    ee = ex * ex + ey * ey
+    ee = np.where(ee > 0, ee, F32(1.0)).astype(F32)
+    data = (v, ex, ey, ee, ax, ay, by, tuple(a[:, None] for a in (ex, ey, ee, ax, ay, by)))
+    if isinstance(verts, (np.ndarray, tuple)):  # a part's outline (a tuple of pairs) lives as long as the part
+        if len(_EDGE_CACHE) > 4096:
+            _EDGE_CACHE.clear()
+        _EDGE_CACHE[id(verts)] = (verts, data)
+    return data
 
 
 def polygon2(x, y, verts) -> np.ndarray:
@@ -160,28 +182,23 @@ def polygon2(x, y, verts) -> np.ndarray:
     Sphere tracing calls this with a few hundred points per step, where a Python loop over 30-60 edges
     costs more than the arithmetic, so small batches take every edge at once; large ones loop over the
     edges. Both orders give the same float32 results."""
-    v = np.asarray(verts, dtype=np.float64)
     shape = np.shape(x)
     px = np.asarray(x, dtype=np.float32).reshape(-1)
     py = np.asarray(y, dtype=np.float32).reshape(-1)
+    v, ex, ey, ee, ax, ay, by, cols = _poly_edges(verts)
     d2 = (px - F32(v[0, 0])) ** 2 + (py - F32(v[0, 1])) ** 2
-    nxt = np.roll(v, -1, axis=0)
-    ex = (nxt[:, 0] - v[:, 0]).astype(F32)  # edge vectors, rounded from float64 like the vertices
-    ey = (nxt[:, 1] - v[:, 1]).astype(F32)
-    ax, ay, by = v[:, 0].astype(F32), v[:, 1].astype(F32), nxt[:, 1].astype(F32)
-    ee = ex * ex + ey * ey
-    ee = np.where(ee > 0, ee, F32(1.0)).astype(F32)
     if px.size <= POLY_BATCH:
-        ex2, ey2, ee2 = ex[:, None], ey[:, None], ee[:, None]
-        wx, wy = px[None, :] - ax[:, None], py[None, :] - ay[:, None]
-        t = np.clip((wx * ex2 + wy * ey2) / ee2, 0.0, 1.0)
+        ex2, ey2, ee2, ax2, ay2, by2 = cols
+        wx, wy = px[None, :] - ax2, py[None, :] - ay2
+        t = np.minimum(np.maximum((wx * ex2 + wy * ey2) / ee2, F32(0.0)), F32(1.0))
         dx, dy = wx - ex2 * t, wy - ey2 * t
         d2 = np.minimum(d2, (dx * dx + dy * dy).min(axis=0))
-        # crossing number: the edge straddles the horizontal line through p, to the right of p
+        # crossing number: the edge straddles the horizontal line through p, to the right of p (an
+        # upward edge, p at or above its start: cross > 0; a downward one: cross < 0)
         cross = ex2 * wy - ey2 * wx
-        up = (py[None, :] >= ay[:, None]) & (py[None, :] < by[:, None])
-        down = (py[None, :] < ay[:, None]) & (py[None, :] >= by[:, None])
-        inside = np.bitwise_xor.reduce((up & (cross > 0)) | (down & (cross < 0)), axis=0)
+        above_a = py[None, :] >= ay2
+        straddle = above_a != (py[None, :] >= by2)
+        inside = np.bitwise_xor.reduce(straddle & np.where(above_a, cross > 0, cross < 0), axis=0)
     else:
         inside = np.zeros(px.shape, dtype=bool)
         for i in range(len(v)):

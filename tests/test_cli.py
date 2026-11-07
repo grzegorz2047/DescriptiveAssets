@@ -62,7 +62,7 @@ def test_render_writes_pngs_at_the_requested_size():
 
 
 def test_check_all_examples_pass():
-    proc = run("check")
+    proc = run("check", timeout=600)  # the four-view robot alone takes 3-4 minutes (its carving cuts)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert f"ASSETS  {len(EXAMPLES)}: {len(EXAMPLES)} passed, 0 failed, 0 errors" in proc.stdout
     for name in EXAMPLES:
