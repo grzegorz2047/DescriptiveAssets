@@ -25,7 +25,7 @@ from . import fit as fit_mod
 from . import reference as ref_mod
 from . import structure as st_mod
 from .errors import SightlineError
-from .loader import MAX_PARTS, asset_from_data
+from .loader import MAX_CUTS, MAX_PARTS, asset_from_data
 from .style import display_path, read_yaml, resolve_root
 
 UP = 4  # pieces are traced at a quarter of a camera pixel
@@ -416,9 +416,10 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
     start = list(state.scores)
     floor = [s[0] - fit_mod.FLOOR_TOL for s in start]
     axes = fit_mod.symmetry_axes(asset)
-    budget = MAX_PARTS - sum(1 for p in asset.parts if not p.is_paint)
+    budget = MAX_PARTS - sum(1 for p in asset.parts if p.is_solid)  # fills
+    cut_budget = MAX_CUTS - sum(1 for p in asset.parts if p.is_cut)
     log("start  " + "  ".join(f"{v.view} {s[1]:.4f}/{s[2]:.3f}/{s[3]:.3f}" for v, s in zip(views, start))
-        + f"  mean score {state.mean:.4f}; {budget} parts left under {MAX_PARTS}")
+        + f"  mean score {state.mean:.4f}; room for {budget} solids and {cut_budget} cuts")
     cands = candidates(state, asset, axes, cuts=cuts, fills=fills)
     log(f"{len(cands)} candidate piece(s): " + ", ".join(f"{e['name']} {w:.0f} px" for w, e in cands[:12])
         + (" ..." if len(cands) > 12 else ""))
@@ -451,8 +452,9 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
             if any(k["name"] == name for k in kept):
                 continue
             cost = 2 if entry.get("mirror") else 1
-            if cost > budget:
-                tried[name] = "no room: the asset is at its part limit"
+            is_cut = entry.get("op") == "cut"
+            if cost > (cut_budget if is_cut else budget):
+                tried[name] = "no room: the asset is at its " + ("cut" if is_cut else "part") + " limit"
                 continue
             res_, err = _trial_add(state, [entry])
             if res_ is None:
@@ -465,7 +467,10 @@ def carve_asset(path, root=None, *, res: int = 512, cuts: bool = True, fills: bo
                 tried[name] = f"score {gain * 100:+.3f}" + (f", {'/'.join(low)} below its start" if low else "")
                 continue
             _accept(state, res_)
-            budget -= cost
+            if is_cut:
+                cut_budget -= cost
+            else:
+                budget -= cost
             kept.append(entry)
             tried.pop(name, None)
             log(f"  + {name} ({weight:.0f} px): mean score {state.mean:.4f}, IoU "

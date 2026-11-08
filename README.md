@@ -194,6 +194,13 @@ pominąć jeden bok, więc robot ma teraz trzy obrazki (przód, tył, lewy) i ob
 (`out/robot/views4_r26.png`). Obrysy cięć są wygładzane przed uproszczeniem, bo każdy schodek piksela
 przeciągnięty przez całe ciało rysował się jako pasek na udzie.
 
+**Cała runda w czterech poleceniach.** Po ręcznym ułożeniu kształtów: `sightline fit` dociąga
+liczby, `sightline carve` tnie i wypełnia obrys, `sightline paint --strip` maluje od nowa z każdego
+obrazka po kolei (boki, tył, przód), a `sightline score --against poprzedni.yaml --out score.png`
+daje jedną tabelę ze wszystkimi miarami dla każdego obrazka oraz obrazek do pokazania: koncept na
+górze, pod nim wiersz na każdą wersję, z IoU pod każdym kafelkiem. Cięcia mają własny limit 256,
+osobny od brył, więc rzeźbienie nie zabiera miejsca częściom.
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z

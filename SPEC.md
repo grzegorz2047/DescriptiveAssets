@@ -256,7 +256,7 @@ Applied in this order after placement of the base part: repeat, then mirror.
   all earlier solids) lies inside the paint's shape (`d_paint <= 0` at the hit point), it is coloured
   with the paint's `material`; the last paint in file order wins. Paints never count as solids
   (bounds, contacts, voxels, silhouettes); `blend` is an error, `material` is required. At most
-  256 paints, counted apart from the 256 solids and cuts.
+  256 paints and 256 cuts (`MAX_CUTS`), each counted apart from the 256 solids (`MAX_PARTS`).
 - `tags: [...]` per part (free text, e.g. `door`, `walkable`). The tag `hidden` says the part (or cut)
   is expected out of sight (an interior or underside part): inspect gives it no low-visibility or
   "vanishes at 32 px" warning.
@@ -266,7 +266,7 @@ Applied in this order after placement of the base part: repeat, then mirror.
 Errors (SightlineError with `where` and `hint`): unknown top-level or part keys, unknown shape,
 missing/negative/zero sizes, unknown material (did_you_mean over the style's materials), forward
 or unknown references, unknown anchor, duplicate names after expansion, `round` too large,
-capsule height < 2r, `count` < 1, more than 256 parts after expansion, cut with material, solid
+capsule height < 2r, `count` < 1, more than 256 solids (cuts, paints) after expansion, cut with material, solid
 without material. `asset:` must equal the file stem.
 
 ## 5. Model (`model.py`) — the in-memory contract
@@ -943,6 +943,8 @@ sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]
 sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--holdout I,J] [--outline-only]
               [--write | --out PATH] [--no-check] [--force] [--json]   # exit 1 when a check newly fails
 sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--holdout I,J] [--write | --out PATH] [--no-check] [--force] [--json]
+sightline score <asset> [--against [label=]PATH] [--versions label=PATH ...] [--label L] [--res N] [--no-ceiling] [--out PNG] [--json]
+sightline paint <asset> [--order views|indices] [--strip | --strip-all] [--prefix P] [--res N] [--write | --out PATH] [--json]
 sightline structure <asset>|<image> [--index I] [--res N] [--height M] [--trace IDS|disagree|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]
 sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]
 sightline level render|play|check <level> [--json] [--out DIR]
@@ -1308,6 +1310,34 @@ azimuth a and −a give mirror images of symmetric objects).
   `score_start`/`score_after`; `kept` (name, kind, mirror, material, from count), `refused` (name, why),
   `candidates`, `checks`, `symmetry`, `trials`, `seconds`, `text` (the entries appended to `parts:`
   as one-line flow mappings under a comment, before `checks:`). CLI as `fit`.
+- Budgets: fills count against `MAX_PARTS` (solids), cuts against `MAX_CUTS`; a mirrored piece costs two.
+
+### 12.7 Scoreboard (`score.py`) — `score_asset(asset, res=512, *, ceiling=True) -> dict`
+
+- Per reference: `match_asset` (iou, missing, extra, `outline` picture/model, `ceiling`) and
+  `compare_structure` (classes areas/strict, divisions rb/pb) → `views` rows, `mean_iou`, `counts`
+  (solids, cuts, paints). `format_score(rep, against=None)` prints one line per reference, differences
+  from `against` in brackets.
+- `write_score_png(versions, path, res=256)`: `versions` = [(label, asset)], the last one's references
+  set the views (unique, in order). Row 0: the concept of each view (`_analyze` of the reference, on
+  white, at `height` / bbox height m per px, the model's height without one). Then one row per version:
+  `render_raw(views, mpp=TILE_MPP=0.004, light="view", no figure, no ground)`, IoU at `res` under the
+  tile, `not used` for a view the version has no reference for. One box per view: the largest
+  silhouette extent over the rows plus `MARGIN` = 6%; tiles resampled to `OUT_PX` = 3.5 mm/px.
+  `load_versions(["label=path", "path"], root)`.
+
+### 12.8 Colour pass (`paint.py`) — `paint_asset(path, root=None, *, res=512, order=None, strip=False, strip_all=False, prefix="paint", log=None) -> dict`
+
+- `strip_paints(text, prefix | None)`: removes the `op: paint` entries (named with the prefix, or all)
+  by their YAML line spans (an entry runs from its `- ` line to the next item's line) and the
+  `# --- paints where` comment lines; returns (text, removed).
+- Order: `order` as views or indices, else `ORDER` = right, left, back, front (then the rest); only
+  front/back/left/right references are painted from. For each: `trace_regions(asset, ["fix"], k,
+  res, paint=True, conform=True, prefix)` on the asset as painted so far, its YAML appended under a
+  comment (dedented for a `parts:` list without indentation) before `checks:`; `compare_structure`
+  of every reference before and after.
+- Report: `order`, `stripped`, `steps` (index, view, paints, skipped), `views` (classes and divisions
+  before/after), `paints`, `max_paints`, `seconds`, `text`; `format_paint`. CLI as `fit` (no checks).
 
 ## 13. Import (`importer.py`)
 

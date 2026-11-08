@@ -191,7 +191,18 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      went from IoU 0.928 / 0.930 / 0.927 / 0.938 to 0.948 / 0.951 / 0.937 / 0.947 with 13 cuts and 4
      fills, classes and divisions unchanged. Each cut tests its outline for every solid it lists at
      every ray step, so a carved asset renders and checks more slowly (the robot's checks: 2 -> about
-     3.5 minutes).
+     3.5 minutes). Cuts have their own limit (256, like paints), so carving never takes the room of a
+     solid part.
+   - Colours last, with one command: `sightline paint <asset> --strip --out out/<asset>_painted.yaml`
+     runs `structure --trace fix --paint --conform` for every reference in turn (sides, back, front),
+     each on the asset as painted so far, after removing the paints an earlier pass wrote
+     (`--strip-all` removes hand-written ones too). Run it again after every `fit` or `carve`: the
+     paints sit at the old surfaces. On the robot it rebuilt 222 paints as 106 for the same classes.
+   - Measure every round with `sightline score <asset> --against <previous file> --out
+     out/<asset>/score.png`: one table with IoU, contour, classes, divisions and ceiling per reference
+     (differences from the previous version in brackets), and the picture to show the designer: the
+     concept of each view on top, one row per version under it, IoU under each tile. The round, in
+     order: shapes → `fit` → `carve` → `paint --strip` → `score`.
    - A rebuild from the pictures as one traced shell per body segment (another agent's robot) reached
      IoU 0.953 / 0.957 / 0.944 / 0.948 but classes 88-95% and divisions 80-84%: shells cover the plates
      and their seams do not follow the panel lines. Adding such shells to a plated model raised IoU by

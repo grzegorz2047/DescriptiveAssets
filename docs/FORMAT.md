@@ -240,14 +240,14 @@ bottom center of the front face and `@[0, 0.45, 0]` is 45% of the half-height ab
   part borders), in `match` and `structure` (as the part that colours those pixels), in the
   report's colour shares and in the export (the triangles inside a paint get its material, one
   glTF primitive per material). `visible` checks work on them (the share of their painted surface a
-  view shows). Up to 256 paints, apart from the 256 solids and cuts.
+  view shows). Up to 256 paints and 256 cuts, each apart from the 256 solids.
 
 ### 3.6 Validation
 
 Errors (with file, YAML path, line and a hint): unknown keys, unknown shape, missing/zero/negative
 sizes, unknown material (did-you-mean over the style's materials), forward or unknown references,
 unknown anchors, duplicate names after expansion, `round` too large, capsule height < 2r,
-`count` < 1, more than 256 parts (or 256 paints) after expansion, a cut with a material, a solid or
+`count` < 1, more than 256 solids (or 256 cuts, or 256 paints) after expansion, a cut with a material, a solid or
 paint without one, `blend` on a paint, `from` on a solid,
 `asset:` not equal to the file name.
 
@@ -522,7 +522,7 @@ with both in, `carve` cuts only outside their union and both rise.
   pictures between the piece's heights (a piece of the visual hull), else the model's whole depth.
   Its material is the model's material of the picture's class there.
 - Each piece is scored alone with `fit`'s guarded score (the mean of outline IoU, classes and
-  divisions); those that raise it go in by gain per part (`MAX_PARTS` = 256 solids and cuts, a
+  divisions); those that raise it go in by gain per part (`MAX_PARTS` = 256 solids for fills, `MAX_CUTS` = 256 for cuts, a
   mirrored piece costs two), each kept only if the score still rises and no view ends more than
   0.0005 below its start; a second pass retries the refused ones.
 - Checks run before and after: a part left floating comes off the cut's `from:` list together with the
@@ -533,6 +533,29 @@ Carve after the shapes and numbers are right: it fixes the outline to the pictur
 model sticks out, which `fit` cannot do without moving the plates around it. The robot went from IoU
 0.928 / 0.930 / 0.927 / 0.938 to 0.948 / 0.951 / 0.937 / 0.947 (front, back, right, left) this way,
 classes and divisions unchanged; its checks take about twice as long.
+
+### 5.5 The scoreboard and the colour pass (`sightline score`, `sightline paint`)
+
+`sightline score <asset> [--against [label=]PATH] [--versions label=PATH ...] [--label L] [--res 512]
+[--no-ceiling] [--out PNG] [--json]` puts every reference on one table: outline IoU, the contour
+agreement within 1 px (the picture's, the model's), classes (areas, strict), the divisions (picture
+borders on part boundaries, part boundaries on borders) and the ceiling the opposite picture allows,
+with the mean IoU and the solid, cut and paint counts. `--against` adds the differences from an
+earlier version in brackets. `--out` writes the picture to show after every round: the concept of
+each view on top, then one row per version (`--against`, `--versions`, the asset last), every tile
+at one scale with its IoU underneath (`not used` under a view the version has no reference for).
+
+`sightline paint <asset> [--order right,left,back,front | 2,3,1,0] [--strip | --strip-all]
+[--prefix paint] [--res 512] [--write | --out PATH] [--json]` is the colour pass over every reference
+in one go: `structure --trace fix --paint --conform` for each view in order, each on the asset as
+painted so far (so a later picture paints only what the earlier ones left wrong), sides first by
+default. `--strip` first removes the `op: paint` entries whose names start with `--prefix` (the ones
+this command writes), `--strip-all` every paint, so the colours are read again on the current
+shapes after `fit` or `carve` moved or cut them. The report gives the paints added per view and the
+classes and divisions of every view before and after. Up to 256 paints.
+
+The round, in order: shapes by hand and `structure --trace` → `fit` → `carve` → `paint --strip` →
+`score --against <the previous file> --out out/<asset>/score.png`.
 
 ## 6. Levels
 
@@ -633,7 +656,9 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline ref <image> [--view V] [--height M] [--mask PATH] [--lighting auto\|lit\|flat] [--json]` | the reference analysis |
 | `sightline match <asset> [--index I] [--fit-view] [--res N] [--out DIR] [--json]` | the comparison and `out/<asset>/match_<i>.png`; `CEILING` when a picture from the opposite side exists |
 | `sightline fit <asset> [--parts a,b] [--res N] [--steps 4,2,1] [--max-move M] [--max-parts N] [--outline-only] [--write\|--out PATH] [--no-check] [--force] [--json]` | part numbers moved toward the pictures (section 5.3); a dry run unless `--write` or `--out` |
-| `sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--write\|--out PATH] [--no-check] [--force] [--json]` | cuts over what sticks out of the pictures and fills of what they all show (section 5.4); a dry run unless `--write` or `--out` |
+| `sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--holdout I,J] [--write\|--out PATH] [--no-check] [--force] [--json]` | cuts over what sticks out of the pictures and fills of what they all show (section 5.4); a dry run unless `--write` or `--out` |
+| `sightline score <asset> [--against PATH] [--versions label=PATH ...] [--res N] [--no-ceiling] [--out PNG] [--json]` | every reference on one table, and the concept-vs-model picture (section 5.5) |
+| `sightline paint <asset> [--order ...] [--strip\|--strip-all] [--prefix P] [--res N] [--write\|--out PATH] [--json]` | the colour pass over every reference (section 5.5); a dry run unless `--write` or `--out` |
 | `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS\|disagree\|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |

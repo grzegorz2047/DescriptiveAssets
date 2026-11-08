@@ -410,7 +410,7 @@ def test_error_duplicates_and_limits():
           - {name: a, shape: box, size: [0.1, 0.1, 0.1], material: stone, repeat: {count: 200, step: [0.2, 0, 0]}}
           - {name: b, shape: box, size: [0.1, 0.1, 0.1], material: stone, repeat: {count: 60, step: [0.2, 0, 0]}}
     """)
-    assert "more than 256 parts" in e.message and "260" in e.message
+    assert "more than 256 parts" in e.message and "260" in e.message  # solids; cuts and paints have their own limits
     e = error("""
         parts:
           - {name: a, shape: box, size: [0.1, 0.1, 0.1], material: stone, repeat: {count: 0, step: [1, 0, 0]}}

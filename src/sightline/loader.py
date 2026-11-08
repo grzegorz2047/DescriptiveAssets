@@ -29,7 +29,8 @@ from .model import (
 )
 from .style import display_path, load_style, read_yaml, resolve_root
 
-__all__ = ["load_asset", "load_asset_text", "asset_from_data", "list_assets", "twin_name", "read_yaml", "MAX_PARTS"]
+__all__ = ["load_asset", "load_asset_text", "asset_from_data", "list_assets", "twin_name", "read_yaml", "MAX_PARTS",
+           "MAX_CUTS", "MAX_PAINTS"]
 
 TOP_KEYS = ("asset", "brief", "style", "tags", "parts", "reference", "checks")
 PART_KEYS = ("name", "shape", *PARAM_KEYS, "material", "at", "on", "between", "align", "offset", "follow", "rotate",
@@ -38,7 +39,8 @@ LENGTH_SHAPES = {"box": "size", "ellipsoid": "size", "wedge": "size", "cylinder"
                  "capsule": "height"}  # shapes `between` can stretch along their local Y axis
 REPEAT_KEYS = ("count", "step", "axis", "center")
 REFERENCE_KEYS = ("image", "view", "height", "mask", "lighting")
-MAX_PARTS = 256  # solids and cuts
+MAX_PARTS = 256  # solids
+MAX_CUTS = 256  # op: cut (carving adds many; they are never meshed)
 MAX_PAINTS = 256
 NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 AXES = {"x": 0, "y": 1, "z": 2}
@@ -375,8 +377,13 @@ class _Builder:
             if total > MAX_PAINTS:
                 ctx.fail(f"more than {MAX_PAINTS} paints after expansion (this part brings the total to {total})", head,
                          base_path, "merge neighbouring paints of one material into one outline")
+        elif op == "cut":
+            total = sum(q.is_cut for q in self.parts) + len(placements) + len(twins)
+            if total > MAX_CUTS:
+                ctx.fail(f"more than {MAX_CUTS} cuts after expansion (this part brings the total to {total})", head,
+                         base_path, "merge neighbouring cuts into one outline")
         else:
-            total = sum(not q.is_paint for q in self.parts) + len(placements) + len(twins)
+            total = sum(q.is_solid for q in self.parts) + len(placements) + len(twins)
             if total > MAX_PARTS:
                 ctx.fail(f"more than {MAX_PARTS} parts after expansion (this part brings the total to {total})", head,
                          base_path, "lower repeat counts or merge small details into larger parts")

@@ -635,6 +635,55 @@ def cmd_carve(args) -> int:
     return EXIT_FAIL if rep.get("refused_write") else EXIT_OK
 
 
+def cmd_score(args) -> int:
+    from .score import format_score, load_versions, score_asset, write_score_png
+
+    asset = _load(args.asset, args)
+    against = load_versions([args.against], asset.root)[0] if args.against else None
+    rep = score_asset(asset, res=args.res, ceiling=not args.no_ceiling)
+    rep_against = score_asset(against[1], res=args.res, ceiling=False) if against else None
+    if args.out:
+        versions = load_versions(args.versions or [], asset.root)
+        if against is not None:
+            versions.insert(0, against)
+        versions.append((args.label or asset.name, asset))
+        rep["image"] = _show(write_score_png(versions, args.out, res=min(args.res, 256)))
+    if args.json:
+        _json({**rep, "against": rep_against})
+    else:
+        sys.stdout.write(format_score(rep, rep_against))
+    return EXIT_OK
+
+
+def cmd_paint(args) -> int:
+    from .fit import edit_yaml
+    from .paint import format_paint, paint_asset
+
+    asset = _load(args.asset, args)
+    if args.write and args.out:
+        raise SightlineError("use --write or --out, not both", hint="--write changes the asset file; --out PATH writes a copy")
+    order = [s.strip() for s in args.order.split(",") if s.strip()] if args.order else None
+
+    def log(msg):
+        print(f"paint: {msg}", file=sys.stderr, flush=True)
+
+    rep = paint_asset(asset.path, asset.root, res=args.res, order=order, strip=args.strip, strip_all=args.strip_all,
+                      prefix=args.prefix, log=log)
+    target = pathlib.Path(asset.path) if args.write else (pathlib.Path(args.out) if args.out else None)
+    if target is not None:
+        text = rep["text"]
+        if target.resolve() != pathlib.Path(asset.path).resolve():
+            text = edit_yaml(text, {("asset",): target.stem})
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        rep["written"] = _show(target)
+    if args.json:
+        _json({k: v for k, v in rep.items() if k != "text"})
+    else:
+        sys.stdout.write(format_paint(rep))
+    return EXIT_OK
+
+
 def cmd_match(args) -> int:
     from .reference import fit_view, format_fit, format_match, match_asset
 
@@ -880,6 +929,29 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--fit-view", action="store_true", help="first guess the picture's camera angle")
     sp.add_argument("--res", type=int, default=256, help="render size (default 256)")
     sp.add_argument("--out", help="output folder (default: <root>/out/<asset>)")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("score", cmd_score, "every reference on one scoreboard: outline IoU, contour, classes, divisions, ceiling; "
+                                 "--out writes the concept-vs-model picture, one row per version")
+    sp.add_argument("asset")
+    sp.add_argument("--against", help="an earlier version (path, or label=path) to show differences from and as a row")
+    sp.add_argument("--versions", nargs="*", help="more rows for the picture: label=path ...")
+    sp.add_argument("--label", help="the current asset's row label in the picture (default: its name)")
+    sp.add_argument("--res", type=int, default=512, help="render size of the comparison (default 512)")
+    sp.add_argument("--no-ceiling", action="store_true", help="skip the opposite-picture ceiling (faster)")
+    sp.add_argument("--out", help="PNG path of the picture (concept on top, one row per version)")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("paint", cmd_paint, "colour pass over every reference: structure --trace fix --paint --conform per view, "
+                                 "sides first, each on the asset as painted so far")
+    sp.add_argument("asset")
+    sp.add_argument("--res", type=int, default=512, help="render size of the comparison (default 512)")
+    sp.add_argument("--order", help="views or reference indices in painting order (default: right,left,back,front)")
+    sp.add_argument("--strip", action="store_true", help="remove the earlier auto paints (names with --prefix) first")
+    sp.add_argument("--strip-all", action="store_true", help="remove every op: paint entry first, whatever its name")
+    sp.add_argument("--prefix", default="paint", help="name prefix of the paints written and stripped (default paint)")
+    sp.add_argument("--write", action="store_true", help="add the paints to the asset file")
+    sp.add_argument("--out", help="write a painted copy to this path instead (its asset: name follows the file name)")
     sp.add_argument("--json", action="store_true")
 
     sp = add("fit", cmd_fit, "nudge part numbers (at, size, radius, rotate ...) until the outlines match the reference "
