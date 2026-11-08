@@ -545,6 +545,7 @@ text carry the same facts. `diff_reports(old, new) -> str` lists changed metrics
 | `distinct_from: {assets: [..], view: front, max_iou: 0.7}` | normalized silhouette IoU |
 | `max_parts: n`, `max_materials: n` | budgets |
 | `matches_reference: {index: 0, min_iou: 0.85, max_missing: 0.05, res: 256}` | via `reference.match_asset` at `res`; missing = share of reference area not covered |
+| `spots: {view: front, count: 2, material: glow_blue, box: [h0, h1, v0, v1], res: 512}` | via `inspect.material_spots`: separate patches (4-connected, >= `SPOT_MIN_PX` = 3 px) of the materials on the surface of that view (paints included; default: materials `structure.material_classes` calls accent); `count` n or [lo, hi]; `box` in m along the view's right and up axes keeps patches by centre |
 
 Any entry may carry `why: "..."` (designer intent), printed on failure, inside its mapping or as a
 sibling key. Unknown check kinds and keys are SightlineErrors; all entries are validated before any
@@ -1187,7 +1188,15 @@ azimuth a and −a give mirror images of symmetric objects).
 - `compare_structure(asset, index=0, res=512) -> dict`: the picture aligned as in `match_asset`;
   class agreement over the shared silhouette, edge/part-boundary alignment within 2 px, a verdict
   per region (`ok`, class mismatch, missing light, outside the silhouette), `splits` (parts covering
-  >= 2 listed regions); `format_compare`, `write_compare_png` (`out/<asset>/structure_<i>.png`).
+  >= 2 listed regions), `spots` (below); `format_compare`, `write_compare_png` (`out/<asset>/structure_<i>.png`).
+- `compare_spots(labels, regs, mcls, model, ref, part, parts, h_of, v_of, mpp, lab=None) -> dict`: per
+  class (dark, bright, accent) the picture's regions against the model's 4-connected class patches
+  (>= `ACCENT_MIN_PX` for accents, `REGION_MIN_PX` otherwise): `picture`, `model`, `matched` (greedy,
+  best overlap first; a pair is the same element when it overlaps by `SPOT_OVERLAP` = 0.5 of the
+  smaller or the centres lie within `SPOT_TOL` = 2% of the object's height, at least `NEAR_PX` + 1 px),
+  `missing` (picture regions, with ids), `extra` and `dim` (model patches; an accent patch is dim when
+  the picture's mean chroma under it is >= `DIM_C` = 14: a faint glow the segmentation did not make a
+  region of), `tolerance_m`. `format_spots` prints the COUNTS line and one line per accent mismatch.
 - Comparison metrics: `class_agreement_areas` (pixels more than 1 px from a class border in either
   image) and `class_agreement` (every shared pixel); `region_borders_on_part_boundaries` and
   `part_boundaries_on_borders` (2 px); `edges_on_part_boundaries` / `part_boundaries_on_edges` against
@@ -1315,7 +1324,8 @@ azimuth a and −a give mirror images of symmetric objects).
 ### 12.7 Scoreboard (`score.py`) — `score_asset(asset, res=512, *, ceiling=True) -> dict`
 
 - Per reference: `match_asset` (iou, missing, extra, `outline` picture/model, `ceiling`) and
-  `compare_structure` (classes areas/strict, divisions rb/pb) → `views` rows, `mean_iou`, `counts`
+  `compare_structure` (classes areas/strict, divisions rb/pb, `lights` = accent spots picture/model/
+  matched/dim) → `views` rows, `mean_iou`, `counts`
   (solids, cuts, paints). `format_score(rep, against=None)` prints one line per reference, differences
   from `against` in brackets.
 - `write_score_png(versions, path, res=256)`: `versions` = [(label, asset)], the last one's references

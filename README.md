@@ -201,6 +201,12 @@ daje jedną tabelę ze wszystkimi miarami dla każdego obrazka oraz obrazek do p
 górze, pod nim wiersz na każdą wersję, z IoU pod każdym kafelkiem. Cięcia mają własny limit 256,
 osobny od brył, więc rzeźbienie nie zabiera miejsca częściom.
 
+**Liczenie elementów.** Zgodność pikseli nie odróżni dwojga oczu od czworga: model z dodatkową lampą
+potrafi lepiej pasować do kilku zdjęć naraz. Wiersz `COUNTS` w `structure` i kolumna „lights" w `score`
+liczą osobne plamy każdej klasy na obrazku i w modelu i mówią, ile z nich to ten sam element; check
+`spots: {view: front, count: 2, material: glow_blue, box: [-0.1, 0.1, 1.7, 1.85]}` przypina liczbę
+plam materiału w widoku (w prostokącie w metrach) bez obrazka.
+
 **Gotowy model zamiast obrazka.** `sightline import model.glb` zamienia siatkę na wersję opisową:
 każdy kawałek modelu staje się nazwaną bryłą (prostopadłościan, walec, elipsoida, stożek) z
 najbliższym materiałem i błędem dopasowania w centymetrach. To punkt startu do dalszej pracy z

@@ -55,6 +55,9 @@ REPORT_MIN = 0.004  # regions listed in the text report: share of the object
 REPORT_MAX = 40
 NEAR_PX = 2  # edge alignment tolerance
 CLASS_BAND = 1  # px along class borders left out of the area class agreement
+SPOT_TOL = 0.02  # share of the object's height within which a picture element and a model one are the same one
+SPOT_OVERLAP = 0.5  # or they overlap by this share of the smaller one
+DIM_C = 14.0  # chroma from which the picture under a model light shows a dim glow (not an accent region, not nothing)
 
 _HUES = ((20, "red"), (50, "orange"), (75, "yellow"), (160, "green"), (200, "cyan"), (290, "blue"), (335, "purple"), (361, "red"))
 
@@ -911,6 +914,79 @@ def material_classes(asset, ids: np.ndarray) -> np.ndarray:
     return np.concatenate([out, np.array([-1], dtype=np.int8)])
 
 
+def compare_spots(labels: np.ndarray, regs: list[dict], mcls: np.ndarray, model: np.ndarray, ref: np.ndarray,
+                  part: np.ndarray, parts, h_of, v_of, mpp: float, lab: np.ndarray | None = None) -> dict:
+    """Count the picture's elements against the model's, class by class: how many separate patches each
+    shows and how many are the same one (overlapping by SPOT_OVERLAP of the smaller, or centres within
+    SPOT_TOL of the object's height). Pixel agreement cannot tell two eyes from four; this can.
+    Per class: picture, model, matched, missing (picture regions), extra (model patches), tolerance_m.
+    An accent patch of the model over picture pixels that glow a little (chroma >= DIM_C, under the
+    accent threshold, so no picture region) is `dim`, not extra: the picture has the light, faintly."""
+    rows = np.flatnonzero(ref.any(axis=1))
+    height_px = float(rows[-1] - rows[0] + 1) if rows.size else 1.0
+    tol_px = max(NEAR_PX + 1.0, SPOT_TOL * height_px)
+    out = {}
+    for c, name in enumerate(CLASS_NAMES):
+        pic = [r for r in regs if (2 if r["class"].startswith("accent") else ("dark", "bright").index(r["class"])) == c]
+        comp, sizes = ref_mod.label_components((mcls == c) & model)
+        keep = np.flatnonzero(sizes >= (ACCENT_MIN_PX if c == 2 else REGION_MIN_PX))
+        mod = []
+        for k in keep:
+            yy, xx = np.nonzero(comp == k)
+            ids, cnt = np.unique(part[yy, xx], return_counts=True)
+            top = ids[np.argmax(cnt)]
+            mod.append({"label": int(k), "px": int(sizes[k]), "cx": xx.mean() + 0.5, "cy": yy.mean() + 0.5,
+                        "center": [round(float(h_of(xx.mean() + 0.5)), 3), round(float(v_of(yy.mean() + 0.5)), 3)],
+                        "part": parts[int(top)].name if top >= 0 else None})
+        # overlap of every (picture region, model patch) pair in one pass
+        nm = max(1, len(mod))
+        pl = np.full(labels.shape, -1, dtype=np.int64)
+        for j, r in enumerate(pic):
+            pl[labels == r["label"]] = j
+        ml = np.full(comp.shape, -1, dtype=np.int64)
+        for j, m in enumerate(mod):
+            ml[comp == m["label"]] = j
+        both = (pl >= 0) & (ml >= 0)
+        inter = {}
+        if both.any():
+            key, cnt = np.unique(pl[both] * nm + ml[both], return_counts=True)
+            inter = {(int(k // nm), int(k % nm)): int(n) for k, n in zip(key, cnt)}
+        pairs = []
+        for j, r in enumerate(pic):
+            yy, xx = np.nonzero(labels == r["label"])
+            cx, cy, n = xx.mean() + 0.5, yy.mean() + 0.5, max(1, int(xx.size))
+            for i, m in enumerate(mod):
+                ov = inter.get((j, i), 0) / max(1, min(n, m["px"]))
+                d = math.hypot(cx - m["cx"], cy - m["cy"])
+                if ov >= SPOT_OVERLAP or d <= tol_px:
+                    pairs.append((-ov, d, j, i))
+        pairs.sort()
+        used_p, used_m = set(), set()
+        for _, _, j, i in pairs:
+            if j not in used_p and i not in used_m:
+                used_p.add(j)
+                used_m.add(i)
+        extra, dim = [], []
+        for i, m in enumerate(mod):
+            if i in used_m:
+                continue
+            row = {"center": m["center"], "px": m["px"], "part": m["part"]}
+            if c == 2 and lab is not None:
+                under = (comp == m["label"]) & ref
+                chroma = float(np.hypot(lab[under, 1], lab[under, 2]).mean()) if under.any() else 0.0
+                row["picture_chroma"] = round(chroma, 1)
+                if chroma >= DIM_C:
+                    dim.append(row)
+                    continue
+            extra.append(row)
+        out[name] = {
+            "picture": len(pic), "model": len(mod), "matched": len(used_p),
+            "missing": [{"id": r["id"], "center": r["center"], "px": int(r.get("px", 0))} for j, r in enumerate(pic) if j not in used_p],
+            "extra": extra, "dim": dim, "tolerance_m": round(tol_px * mpp, 4),
+        }
+    return out
+
+
 def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = None) -> dict:
     """How the model's parts and materials line up with the divisions inside its reference picture."""
     if isinstance(res, bool) or not isinstance(res, int) or not 16 <= res <= 4096:
@@ -1013,6 +1089,7 @@ def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = 
             splits.append({"part": parts[pi].name, "material": parts[pi].material,
                            "regions": [r["id"] for r in big], "classes": sorted({r["class"] for r in big})})
     splits.sort(key=lambda s: -len(s["regions"]))
+    spots = compare_spots(labels, regs, mcls, M_, R_, part, parts, h_of, v_of, mpp, lab)
     rep = {
         "asset": asset.name, "index": index, "view": view, "res": res, "grid_mpp": round(mpp, 5), "axes": list(axes),
         "image": m.report["reference"]["image"],
@@ -1023,13 +1100,32 @@ def compare_structure(asset, index: int = 0, res: int = 512, view: str | None = 
         "part_boundaries_on_edges": round(bound_hit, 3),
         "region_borders_on_part_boundaries": round(border_hit, 3),
         "part_boundaries_on_borders": round(bound_on_border, 3),
-        "edges": efacts, "region_facts": rfacts, "regions": regs, "splits": splits,
+        "edges": efacts, "region_facts": rfacts, "regions": regs, "splits": splits, "spots": spots,
         "summary": _summary(regs, edge, R_),
     }
     rep["_arrays"] = {"pic": pic, "ref": R_, "model": M_, "labels": labels, "cls": cls, "mcls": mcls, "edge": edge,
                       "pb": pb, "lambert": m.lambert, "part": part}
     rep["_trace"] = {"h_of": h_of, "v_of": v_of, **_grid_coords.last}
     return rep
+
+
+def format_spots(spots: dict, h: str = "x", v: str = "y") -> list[str]:
+    """COUNTS line (every class) and one line per accent patch that is missing or extra."""
+    acc = spots["accent"]
+    lines = ["COUNTS     separate elements, picture / model (same one): "
+             + "; ".join(f"{k} {s['picture']} / {s['model']} ({s['matched']})" for k, s in spots.items())
+             + (f", {len(acc['dim'])} dim in the picture" if acc.get("dim") else "")
+             + f"  (same = overlap by half or centres within {acc['tolerance_m']:.3f} m)"]
+    for r in acc["missing"][:REPORT_MAX]:
+        lines.append(f"  light or decal {r['id']} in the picture at {h} {r['center'][0]:+.2f}, {v} {r['center'][1]:.2f} m has no model patch")
+    for m in acc["extra"][:REPORT_MAX]:
+        lines.append(f"  model light or decal at {h} {m['center'][0]:+.2f}, {v} {m['center'][1]:.2f} m ({m['part']}, {m['px']} px) "
+                     f"is not in the picture (chroma {m.get('picture_chroma', 0):.0f} there)")
+    if acc.get("dim"):
+        lines.append("  dim in the picture (a faint glow, no accent region): "
+                     + ", ".join(f"{m['part']} at {h} {m['center'][0]:+.2f}, {v} {m['center'][1]:.2f}" for m in acc["dim"][:12])
+                     + (" ..." if len(acc["dim"]) > 12 else ""))
+    return lines
 
 
 def format_compare(rep: dict) -> str:
@@ -1046,6 +1142,7 @@ def format_compare(rep: dict) -> str:
     s = rep["summary"]
     cl = ", ".join(f"{k} {v_:.0%}" for k, v_ in s["classes"].items())
     lines.append(f"REGIONS    {s['count']} in the picture ({cl}); {s['pairs']} left/right pairs; {s['accents']} lights or decals")
+    lines.extend(format_spots(rep["spots"], h, v))
     probs = [r for r in rep["regions"] if r.get("verdict") and not r["verdict"].startswith("ok")]
     oks = [r for r in rep["regions"] if r.get("verdict", "") and r["verdict"].startswith("ok")]
     lines.append(f"FINDINGS   {len(probs)} regions disagree with the model, {len(oks)} agree (largest first; {h} and {v} in m)")

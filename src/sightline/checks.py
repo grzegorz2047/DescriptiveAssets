@@ -52,6 +52,7 @@ CHECK_KINDS: dict[str, tuple[str, ...]] = {
     "max_parts": (),
     "max_materials": (),
     "matches_reference": ("index", "min_iou", "max_missing", "res"),
+    "spots": ("view", "count", "material", "box", "res"),
 }
 SCALAR_KINDS = ("max_parts", "max_materials")  # take a number, not a mapping
 BARE_KINDS = ("grounded", "connected", "stable", "symmetric", "readable_at", "matches_reference")
@@ -71,6 +72,7 @@ EXAMPLES = {
     "max_parts": "max_parts: 30",
     "max_materials": "max_materials: 6",
     "matches_reference": "matches_reference: {index: 0, min_iou: 0.85, max_missing: 0.05}",
+    "spots": "spots: {view: front, count: 2, material: glow_blue, box: [-0.1, 0.1, 1.7, 1.85]}",
 }
 RELATIONS = ("above", "below", "left_of", "right_of", "in_front_of", "behind", "touching", "inside")
 DIMS = ("width", "height", "depth")
@@ -255,7 +257,44 @@ def _validate(asset: Asset, kind: str, raw, where: str) -> dict:
         if a["index"] >= len(asset.references):
             _fail(f"reference index {a['index']} out of range: the asset has {len(asset.references)} reference(s)", where,
                   f"use index 0..{len(asset.references) - 1}")
+    elif kind == "spots":
+        if "count" not in raw:
+            _fail("spots needs count:", where, f"e.g. {EXAMPLES[kind]}")
+        a["view"] = _view(raw.get("view", "front"), where)
+        a["count"] = _count_range(raw["count"], where)
+        mats = raw.get("material")
+        if mats is not None:
+            mats = [mats] if isinstance(mats, str) else mats
+            if not isinstance(mats, list) or not mats or not all(isinstance(m, str) for m in mats):
+                _fail("material must be a material name or a list of them", where, "e.g. material: glow_blue")
+            for m in mats:
+                if m not in asset.style.materials:
+                    guess = did_you_mean(m, list(asset.style.materials))
+                    _fail(f"unknown material '{m}'", where, guess or "a material of the asset's style")
+        a["material"] = mats
+        box = raw.get("box")
+        if box is not None:
+            if (not isinstance(box, list) or len(box) != 4 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box)
+                    or not (box[0] < box[1] and box[2] < box[3])):
+                _fail("box must be [h0, h1, v0, v1] in m with h0 < h1 and v0 < v1", where,
+                      "h along the view's right axis, v up, both from the origin; e.g. box: [-0.1, 0.1, 1.7, 1.85]")
+            box = [float(v) for v in box]
+        a["box"] = box
+        a["res"] = _integer(raw.get("res", 512), where, "res", 16)
+        if a["res"] > 4096:
+            _fail(f"res must be at most 4096, got {a['res']}", where, "res is the render's long side in px (default 512)")
     return a
+
+
+def _count_range(value, where: str) -> tuple[int, int]:
+    if isinstance(value, bool):
+        _fail(f"count must be a whole number or [min, max], got {value!r}", where)
+    if isinstance(value, int) and value >= 0:
+        return value, value
+    if (isinstance(value, list) and len(value) == 2 and all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in value)
+            and value[0] <= value[1]):
+        return int(value[0]), int(value[1])
+    _fail(f"count must be a whole number or [min, max], got {value!r}", where, "e.g. count: 2 or count: [1, 2]")
 
 
 def parse_checks(asset: Asset, entries=None) -> list[CheckEntry]:
@@ -518,6 +557,20 @@ def _evaluate(ctx: _Context, e: CheckEntry) -> CheckResult:
         mats = sorted({p["material"] for p in r["parts"]})
         return _result(e, len(mats) <= a["max"], f"{len(mats)} materials ({', '.join(mats)})", f"<= {a['max']}",
                        f"{len(mats) - a['max']} materials over budget: reuse materials", materials=mats)
+    if kind == "spots":
+        spots = insp.material_spots(ctx.asset, a["view"], a["material"], res=a["res"], box=a["box"])
+        n, (lo, hi) = len(spots), a["count"]
+        what = "/".join(a["material"]) if a["material"] else "accent (light, decal)"
+        where = f" in {a['view']}" + (f" within {a['box']}" if a["box"] else "")
+        listed = "; ".join(f"{s['size'][0]:.2f} x {s['size'][1]:.2f} m at {s['center'][0]:+.2f}, {s['center'][1]:.2f} "
+                           f"({', '.join(s['parts'])})" for s in spots[:8]) + (" ..." if n > 8 else "")
+        passed = lo <= n <= hi
+        if n > hi:
+            msg = f"{n - hi} too many: {listed}; join or remove the extra patches"
+        else:
+            msg = f"{lo - n} too few: {listed or 'none shown'}; add or uncover the missing ones"
+        return _result(e, passed, f"{n} separate {what} patches{where}", str(lo) if lo == hi else f"{lo}..{hi}", msg,
+                       count=n, spots=spots)
     if kind == "matches_reference":
         try:
             from .reference import match_asset

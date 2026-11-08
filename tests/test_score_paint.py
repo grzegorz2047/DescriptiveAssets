@@ -80,6 +80,7 @@ def test_score_lists_every_reference_and_writes_the_picture(scratch):
     assert rep["counts"] == {"solids": 2, "cuts": 0, "paints": 0}
     out = S.format_score(rep, S.score_asset(asset, res=128, ceiling=False))
     assert "SCORE  panel" in out and "(+0.000)" in out and "with back" in out
+    assert "lights picture/model (same, dim)" in out and front["lights"] == {"picture": 0, "model": 0, "matched": 0, "dim": 0}
     png = S.write_score_png([("before", asset), ("now", asset)], scratch / "score.png", res=96)
     img = Image.open(png)
     assert img.size[0] > 300 and img.size[1] > 300  # 3 rows (concept, before, now) x 2 views

@@ -2399,15 +2399,6 @@ parts:
     from: [thigh_r]
     material: iron
     at: [0.187, 0.738, 0.066]
-  - name: p22_right_f13_r                 # traced from right picture region F13: accent, the model shows bright here
-    shape: extrude
-    points: [[0.006, 0.011], [0.019, 0.011], [0.015, 0.006], [0.011, 0.006], [-0.011, -0.011], [-0.019, -0.006], [-0.019, -0.002]]
-    side: [[0.017, 0.013], [0.024, -0.013], [-0.004, -0.013], [-0.024, -0.002], [-0.017, 0.013]]
-    rotate: [0, 90, 0]
-    op: paint
-    from: [cranium]
-    material: glow_blue
-    at: [0.029, 1.878, 0.055]
   - name: p22_right_f14_r                 # traced from right picture region F14: accent, the model shows bright here
     shape: extrude
     points: [[0.002, 0.009], [0.006, 0.009], [0.011, 0.000], [-0.002, -0.009], [-0.011, 0.000], [-0.006, 0.004], [-0.002, -0.004], [0.006, 0.004]]
@@ -2435,15 +2426,6 @@ parts:
     from: [hip_plate_r, plate_right_r41_r]
     material: glow_blue
     at: [0.208, 1.070, -0.036]
-  - name: p22_right_f17_r                 # traced from right picture region F17: accent, the model shows bright here
-    shape: extrude
-    points: [[0.004, 0.009], [0.004, 0.000], [-0.004, -0.009], [-0.004, 0.000]]
-    side: [[0.005, 0.011], [0.020, 0.000], [0.018, -0.011], [-0.006, -0.011], [-0.020, 0.000], [-0.019, 0.011]]
-    rotate: [0, 90, 0]
-    op: paint
-    from: [cranium]
-    material: glow_blue
-    at: [0.025, 1.859, 0.087]
   # --- paints where the model's class differs from the left picture (structure --trace fix --paint --conform)
   - name: p22_left_f1_l                 # traced from left picture region F1: bright, the model shows dark here
     shape: extrude
@@ -3041,6 +3023,8 @@ checks:
   - size: {height: [1.86, 1.94], width: [2.15, 2.3], why: "1.9 m tall, T-pose arm span about 2.23 m"}
   - symmetric: {axis: x, min: 0.95}
   - visible: {part: eye_l, view: front, min: 0.6, why: "the glowing eyes are the face"}
+  - spots: {view: front, count: 2, material: glow_blue, box: [-0.08, 0.08, 1.76, 1.795], why: "two eyes, not four"}
+  - spots: {view: front, count: 1, material: glow_blue, box: [-0.05, 0.05, 1.83, 1.9], why: "one forehead light"}
   - visible: {part: sternum_light, view: front, min: 0.6}
   - visible: {part: back_light_l, view: back, min: 0.6, why: "the back has its own lights"}
   - relation: {a: cranium, is: above, b: chest_core}

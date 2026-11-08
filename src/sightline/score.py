@@ -42,6 +42,8 @@ def score_asset(asset, res: int = 512, *, ceiling: bool = True) -> dict:
             "classes": s["class_agreement_areas"], "classes_strict": s["class_agreement"],
             "borders_on_boundaries": s["region_borders_on_part_boundaries"],
             "boundaries_on_borders": s["part_boundaries_on_borders"],
+            "lights": {"picture": s["spots"]["accent"]["picture"], "model": s["spots"]["accent"]["model"],
+                       "matched": s["spots"]["accent"]["matched"], "dim": len(s["spots"]["accent"]["dim"])},
             "ceiling": m.get("ceiling"),
         })
     solids = sum(1 for p in asset.parts if p.is_solid and not p.helper)
@@ -60,7 +62,7 @@ def format_score(rep: dict, against: dict | None = None) -> str:
     lines = [f"SCORE  {rep['asset']}  res {rep['res']}  {c['solids']} solids, {c['cuts']} cuts, {c['paints']} paints"
              + (f"   (against {against['asset']}: differences in brackets)" if against else "")]
     lines.append("VIEWS  outline IoU | contour within 1 px: picture's / model's | classes (areas, strict) | "
-                 "divisions: picture borders on part boundaries / boundaries on borders | ceiling")
+                 "divisions: picture borders on part boundaries / boundaries on borders | lights picture/model (same, dim) | ceiling")
     other = {r["index"]: r for r in (against or {"views": []})["views"]}
     for r in rep["views"]:
         o = other.get(r["index"])
@@ -74,7 +76,8 @@ def format_score(rep: dict, against: dict | None = None) -> str:
                      f"{r['outline_picture']:.0%} / {r['outline_model']:.0%} | "
                      f"{r['classes']:.0%}{d('classes')}, {r['classes_strict']:.0%} | "
                      f"{r['borders_on_boundaries']:.0%}{d('borders_on_boundaries')} / "
-                     f"{r['boundaries_on_borders']:.0%}{d('boundaries_on_borders')} | {ceil_txt}")
+                     f"{r['boundaries_on_borders']:.0%}{d('boundaries_on_borders')} | "
+                     f"{r['lights']['picture']}/{r['lights']['model']} ({r['lights']['matched']}, {r['lights']['dim']}) | {ceil_txt}")
     lines.append(f"  mean IoU {rep['mean_iou']:.4f}" + (_delta(rep["mean_iou"], against["mean_iou"]) if against else ""))
     if rep.get("image"):
         lines.append(f"IMAGE  {rep['image']}  (concept on top, one row per version, IoU under each tile)")

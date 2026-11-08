@@ -199,8 +199,9 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      (`--strip-all` removes hand-written ones too). Run it again after every `fit` or `carve`: the
      paints sit at the old surfaces. On the robot it rebuilt 222 paints as 106 for the same classes.
    - Measure every round with `sightline score <asset> --against <previous file> --out
-     out/<asset>/score.png`: one table with IoU, contour, classes, divisions and ceiling per reference
-     (differences from the previous version in brackets), and the picture to show the designer: the
+     out/<asset>/score.png`: one table with IoU, contour, classes, divisions, lights (separate accent
+     patches picture / model, how many are the same one, how many the picture shows only dimly) and
+     ceiling per reference (differences from the previous version in brackets), and the picture to show the designer: the
      concept of each view on top, one row per version under it, IoU under each tile. The round, in
      order: shapes → `fit` → `carve` → `paint --strip` → `score`.
    - A rebuild from the pictures as one traced shell per body segment (another agent's robot) reached
@@ -321,6 +322,10 @@ constraint (`ratio: {a: roof.height, b: total.height, range: [0.25, 0.35], why: 
   part and mirror them too — their twins land on the `_r` parts.
 - Cuts are invisible tools: name them after the hole (`door`, `window`) and check them with
   `visible: {part: door, view: front}`.
+- Pixel scores cannot tell two eyes from four: a model with an extra lamp can match several pictures
+  better. Pin the count with `spots: {view: front, count: 2, material: glow_blue, box: [-0.1, 0.1,
+  1.7, 1.85]}` (separate patches of a material the view shows, inside a box in m) and read the
+  COUNTS line of `structure` / the lights column of `score`: picture / model (same, dim).
 - The renderer has no light emission: a lamp is a bright `lamp`-material box and reads as warm
   ochre on shaded faces.
 - In level renders the iso camera looks from the south-east: tall walls hide what stands

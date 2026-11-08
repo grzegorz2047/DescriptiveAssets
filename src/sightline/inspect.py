@@ -28,6 +28,7 @@ from .voxel import VoxelGrid, occupancy
 
 __all__ = [
     "inspect_asset", "format_report", "diff_reports", "measured_scene", "visible_fractions", "visible_occluders",
+    "material_spots",
     "readability", "ground_contacts",
     "compare_silhouettes", "relative_luminance", "contrast_ratio", "hex_to_rgb", "REPORT_VIEWS",
 ]
@@ -49,6 +50,7 @@ HIDDEN_TAG = "hidden"  # parts tagged hidden are expected to be out of sight: no
 SUPPORT_BAND = 0.02  # m: material this close above the ground (or below it) is a ground contact
 SUPPORT_STEP = 0.01  # m: finest xz step of the ground contact search
 LOW_CONTRAST = 1.5
+SPOT_MIN_PX = 3  # a material patch smaller than this (at the check render size) is a speck, not a spot
 MIN_SHARED_EDGE = 3  # boundary pixel pairs for two parts to count as adjacent
 LETTERS = string.ascii_uppercase + string.ascii_lowercase
 OTHER_LETTER = "*"  # parts beyond the 52 letters
@@ -726,6 +728,49 @@ def visible_occluders(asset: Asset, name: str, views, res: int = 128) -> dict[st
 
 
 # ----------------------------------------------------------------------------- color and contrast
+
+
+def material_spots(asset: Asset, view: str, materials=None, res: int = 512, box=None) -> list[dict]:
+    """Separate patches of the given materials that `view` shows, largest first.
+
+    `materials` (names; None = every accent material, as `structure` classes them: lights, decals) are
+    read off the surface, paints included. `box` = [h0, h1, v0, v1] in m along the view's right and up
+    axes from the origin keeps only the patches whose centre lies inside. Patches under SPOT_MIN_PX
+    pixels are left out. Each patch: `px`, `center` [h, v] m, `size` [w, h] m, `parts` (largest first).
+    A pixel-score can be satisfied by a model with four eyes; this counts them.
+    """
+    from .reference import label_components
+    from .structure import material_classes
+
+    (view,) = _check_views([view])
+    scene, _ = measured_scene(asset)
+    cam = make_cameras([view], *scene.bounds(include_helpers=False), res=res)[view]
+    buf = march(scene, cam)
+    surf = buf.part.copy()
+    if scene.paints and buf.hit.any():
+        surf[buf.hit] = scene.paint_ids(buf.point[buf.hit], buf.part[buf.hit])
+    parts = scene.parts
+    if materials is None:
+        wanted = np.flatnonzero(material_classes(asset, surf)[:-1] == 2)
+    else:
+        names = {materials} if isinstance(materials, str) else set(materials)
+        wanted = np.array([i for i, p in enumerate(parts) if p.material in names], dtype=np.int64)
+    sel = buf.hit & np.isin(surf, wanted)
+    labels, sizes = label_components(sel)
+    out = []
+    for k in np.flatnonzero(sizes >= SPOT_MIN_PX):
+        yy, xx = np.nonzero(labels == k)
+        world = cam.pixel_to_world(xx.mean() + 0.5, yy.mean() + 0.5)
+        h, v = float(world @ cam.right), float(world @ cam.up)
+        if box is not None and not (box[0] <= h <= box[1] and box[2] <= v <= box[3]):
+            continue
+        ids, cnt = np.unique(surf[yy, xx], return_counts=True)
+        order = np.argsort(-cnt)
+        out.append({"px": int(sizes[k]), "center": [round(h, 3), round(v, 3)],
+                    "size": [round(float(xx.max() - xx.min() + 1) * cam.mpp, 3), round(float(yy.max() - yy.min() + 1) * cam.mpp, 3)],
+                    "parts": [parts[int(ids[j])].name for j in order[:3] if ids[j] >= 0]})
+    out.sort(key=lambda s: -s["px"])
+    return out
 
 
 def hex_to_rgb(text: str) -> tuple[float, float, float]:

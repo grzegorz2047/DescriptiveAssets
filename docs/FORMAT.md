@@ -276,6 +276,7 @@ views and dimensions are errors. Each result line reads
 | `max_parts` | `n` or `{max: n}` | number of solid parts |
 | `max_materials` | `n` or `{max: n}` | number of materials used |
 | `matches_reference` | `index` (0), `min_iou` (0.85), `max_missing` (0.05), `res` (256) | `sightline match` IoU and missing share at that render size (section 5) |
+| `spots` | `view` (front), `count` (n or [lo, hi]), `material` (name or list; default every accent material: lights, decals), `box` ([h0, h1, v0, v1] m), `res` (512) | the number of separate patches of those materials the view shows, paints included; `box` keeps the patches whose centre lies inside (h along the view's right axis, v up, from the origin) |
 
 Notes on the numbers behind the checks:
 
@@ -396,6 +397,12 @@ and reports:
 - `DIVISIONS`: the share of the picture's region borders with a model part boundary within 2 px, and of
   the model's part boundaries that lie on a picture border or edge. `DETAIL` gives the same against every
   edge pixel, grooves and lines inside elements included.
+- `COUNTS`: separate elements per class, picture / model (the same one when they overlap by half of the
+  smaller or their centres lie within 2% of the object's height). Pixel agreement cannot tell two eyes
+  from four; this line can. Accent patches of the model that the picture does not show as a region are
+  listed: *dim* where the picture glows faintly there (chroma >= 14, under the accent threshold), *not in
+  the picture* otherwise; picture lights with no model patch too. The `spots` check (section 4) counts the
+  same patches without a picture.
 
 ```
 CLASSES    dark/bright/accent agree on 93% of the areas (85% of every shared pixel, 1 px class borders included)

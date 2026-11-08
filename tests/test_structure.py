@@ -161,6 +161,30 @@ def test_compare_lists_a_part_the_picture_divides(scratch):
     del asset
 
 
+def test_compare_counts_lights_against_the_picture(scratch):
+    """The panel picture has one light: a model with one matches, with two has an extra, without has it missing."""
+    rep = st.compare_structure(_write_asset(scratch, "panel_one_light"), res=256)
+    acc = rep["spots"]["accent"]
+    assert (acc["picture"], acc["model"], acc["matched"]) == (1, 1, 1) and not acc["missing"] and not acc["extra"]
+    assert rep["spots"]["bright"]["picture"] == 2 and rep["spots"]["bright"]["matched"] == 2
+    text = st.format_compare(rep)
+    assert "COUNTS     separate elements, picture / model (same one): dark 1 / 1 (1); bright 2 / 2 (2); accent 1 / 1 (1)" in text
+    asset = _write_asset(scratch, "panel_two_lights")
+    path = scratch / "panel_two_lights.yaml"
+    path.write_text(path.read_text(encoding="utf-8") + "  - name: light2\n    shape: cylinder\n    radius: 0.08\n    height: 0.04\n"
+                    "    rotate: [90, 0, 0]\n    material: glow_blue\n    at: [-0.48, 0.6, 0.16]\n", encoding="utf-8")
+    rep = st.compare_structure(load_asset(path, ROOT), res=256)
+    acc = rep["spots"]["accent"]
+    assert (acc["picture"], acc["model"], acc["matched"]) == (1, 2, 1) and len(acc["extra"]) == 1 and acc["extra"][0]["part"] == "light2"
+    text = st.format_compare(rep)
+    assert "model light or decal at x -0.4" in text and "(light2, " in text and "is not in the picture (chroma" in text
+    rep = st.compare_structure(_write_asset(scratch, "panel_no_light", light=False), res=256)
+    acc = rep["spots"]["accent"]
+    assert (acc["picture"], acc["model"], acc["matched"]) == (1, 0, 0) and acc["missing"][0]["id"].startswith("R")
+    assert "  light or decal R" in st.format_compare(rep) and "in the picture at x +0.4" in st.format_compare(rep) and "has no model patch" in st.format_compare(rep)
+    del asset
+
+
 def _run(*args):
     return subprocess.run([sys.executable, "-m", "sightline", *args, "--root", str(ROOT)], capture_output=True,
                           text=True, encoding="utf-8", errors="replace")

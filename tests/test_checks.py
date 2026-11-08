@@ -317,6 +317,47 @@ def test_matches_reference(fake_reference):
             check(case, {"matches_reference": {"res": bad}})
 
 
+@pytest.fixture(scope="module")
+def lamps():
+    return make("""
+        parts:
+          - {name: base, shape: box, size: [3, 0.5, 1], material: stone, align: bottom}
+          - {name: lamp_l, shape: sphere, radius: 0.2, material: gold, on: base.top, offset: [-0.8, 0, 0]}
+          - {name: lamp_r, shape: sphere, radius: 0.2, material: gold, on: base.top, offset: [0.8, 0, 0]}
+          - {name: lid, shape: box, size: [0.6, 0.1, 0.6], material: paint_black, on: lamp_r.top}
+        """, "lamps")
+
+
+def test_spots(lamps):
+    res = check(lamps, {"spots": {"view": "front", "count": 2, "material": "gold"}})
+    assert res.passed and res.measured == "2 separate gold patches in front" and res.expected == "2"
+    assert [s["parts"][0] for s in res.data["spots"]] == ["lamp_l", "lamp_r"] or [s["parts"][0] for s in res.data["spots"]] == ["lamp_r", "lamp_l"]
+    assert all(abs(s["center"][1] - 0.7) < 0.08 for s in res.data["spots"])  # sphere centres 0.5 + 0.2 m up
+    res = check(lamps, {"spots": {"view": "front", "count": 3, "material": "gold"}})
+    assert not res.passed and res.message.startswith("1 too few: ") and "lamp_l" in res.message and "add or uncover" in res.message
+    res = check(lamps, {"spots": {"view": "front", "count": [0, 1], "material": "gold"}})
+    assert not res.passed and res.expected == "0..1" and res.message.startswith("1 too many: ")
+    res = check(lamps, {"spots": {"view": "front", "count": 1, "material": "gold", "box": [0, 2, 0, 2]}})  # the right lamp only
+    assert res.passed and res.data["spots"][0]["parts"][0] == "lamp_r"
+    assert check(lamps, {"spots": {"view": "top", "count": 1, "material": "gold"}}).passed  # the lid hides lamp_r
+    assert check(lamps, {"spots": {"view": "front", "count": 2}}).passed  # default: every accent material (gold is one)
+    assert check(lamps, {"spots": {"view": "front", "count": 1, "material": ["paint_black"]}}).passed
+
+
+@pytest.mark.parametrize("entry,message", [
+    ({"spots": {"view": "front"}}, "spots needs count:"),
+    ({"spots": {"view": "front", "count": -1}}, "count must be a whole number"),
+    ({"spots": {"view": "front", "count": [2, 1]}}, "count must be a whole number"),
+    ({"spots": {"view": "front", "count": 1, "material": "glod"}}, "unknown material 'glod'"),
+    ({"spots": {"view": "front", "count": 1, "box": [1, 0, 0, 1]}}, "box must be [h0, h1, v0, v1]"),
+    ({"spots": {"view": "sideways", "count": 1}}, "unknown view 'sideways'"),
+])
+def test_spots_entry_errors(lamps, entry, message):
+    asset, _ = lamps
+    with pytest.raises(SightlineError, match=re.escape(message)):
+        parse_checks(asset, [entry])
+
+
 def test_matches_reference_without_reference(stack):
     with pytest.raises(SightlineError) as info:
         check(stack, "matches_reference")
