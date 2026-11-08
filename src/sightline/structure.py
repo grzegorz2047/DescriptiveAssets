@@ -114,10 +114,13 @@ def hue_name(a: float, b: float) -> str:
 # ----------------------------------------------------------------------------- core analysis
 
 
-def edges(rgb: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
+def edges(rgb: np.ndarray, mask: np.ndarray, low: float | None = None, high: float | None = None) -> tuple[np.ndarray, np.ndarray, dict]:
     """Thin edges inside `mask`: (edge (H, W) bool, gradient magnitude (H, W) float32, facts).
 
     `rgb` is float 0..255. Pixels on the object's outline are not edges (the outline is `match`'s job).
+    The hysteresis thresholds are the EDGE_LOW_Q / EDGE_HIGH_Q quantiles of the gradient inside the object
+    (the strongest third: the element divisions); `low` and `high` set them outright instead (the
+    detail pass reads fainter seams this way).
     """
     lab = ref_mod.srgb_to_lab(_box_blur(rgb.astype(np.float32)) / 255.0).astype(np.float32)
     gxs, gys = zip(*(_sobel(lab[..., i]) for i in range(3)))
@@ -142,8 +145,8 @@ def edges(rgb: np.ndarray, mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, di
     vals = mag[inner]
     if vals.size == 0:
         return np.zeros_like(mask), mag, {"low": 0.0, "high": 0.0, "share": 0.0}
-    lo = max(EDGE_LOW_MIN, float(np.quantile(vals, EDGE_LOW_Q)))
-    hi = max(EDGE_HIGH_MIN, float(np.quantile(vals, EDGE_HIGH_Q)))
+    lo = max(EDGE_LOW_MIN, float(np.quantile(vals, EDGE_LOW_Q))) if low is None else float(low)
+    hi = max(EDGE_HIGH_MIN, float(np.quantile(vals, EDGE_HIGH_Q))) if high is None else float(high)
     weak = keep & inner & (mag >= lo)
     strong = weak & (mag >= hi)
     labels, sizes = ref_mod.label_components(_dilate(weak) & inner)  # 8-ish connectivity via dilation
@@ -825,7 +828,8 @@ def _canonical_picture(m, res: int, background) -> dict:
     Cached per picture and res."""
     ref = m.picture
     try:
-        stamp = pathlib.Path(ref.path).stat().st_mtime_ns
+        st = pathlib.Path(ref.path).stat()
+        stamp = (st.st_mtime_ns, st.st_size)  # size too: a file rewritten within the clock's resolution
     except OSError:
         stamp = None
     key = (str(ref.path), stamp, ref.rgb.shape, tuple(ref.bbox), int(ref.mask.sum()), res,

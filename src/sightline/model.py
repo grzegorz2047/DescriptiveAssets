@@ -34,9 +34,12 @@ SHAPES: dict[str, tuple[tuple[str, ...], dict]] = {
     "torus": (("radius", "thickness"), {}),
     "wedge": (("size",), {}),
     "extrude": (("points",), {"depth": None, "side": None, "round": 0.0}),
+    "strokes": (("points", "width"), {"depth": None, "side": None}),
 }
-PARAM_KEYS = ("size", "radius", "height", "top_radius", "sides", "round", "thickness", "points", "depth", "side")
+PARAM_KEYS = ("size", "radius", "height", "top_radius", "sides", "round", "thickness", "points", "depth", "side", "width")
 EXTRUDE_MAX_POINTS = 64
+STROKES_MAX = 128  # polylines in one strokes shape
+STROKES_MAX_POINTS = 1024  # points in all of them
 SHAPE_USAGE = {
     "box": "size: [w, h, d], optional round: r",
     "sphere": "radius: r",
@@ -49,6 +52,9 @@ SHAPE_USAGE = {
     "extrude": "points: [[x, y], ...] (an outline in the XY plane, as seen from the front: 3..64 points, no "
                "crossing edges), depth: d (along Z) or side: [[z, y], ...] (the outline seen from the side, "
                "same y as points), optional round: r",
+    "strokes": "points: [[[x, y], ...], ...] (open polylines in the XY plane, as seen from the front: 1..128 lines "
+               "of 2+ points, 1024 points in all), width: w (of each line, round ends), depth: d (along Z) or "
+               "side: [[z, y], ...] (the outline seen from the side); grooves, seams, panel lines (usually op: paint)",
 }
 
 ANCHOR_WORDS = {
@@ -142,8 +148,19 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
     outlines: dict = {}
     for key in required + tuple(optional):
         value = raw.get(key, optional.get(key))
-        if shape == "extrude" and key in ("depth", "side") and value is None:
+        if shape in ("extrude", "strokes") and key in ("depth", "side") and value is None:
             params[key] = None
+            continue
+        if shape == "strokes" and key == "points":
+            ok = (isinstance(value, (list, tuple)) and 1 <= len(value) <= STROKES_MAX
+                  and all(isinstance(line, (list, tuple)) and len(line) >= 2 and all(
+                      isinstance(pt, (list, tuple)) and len(pt) == 2 and all(_is_number(c) for c in pt) for pt in line)
+                      for line in value)
+                  and sum(len(line) for line in value) <= STROKES_MAX_POINTS)
+            if not ok:
+                fail(key, f"points must be 1 to {STROKES_MAX} lines of 2 or more [x, y] pairs ({STROKES_MAX_POINTS} points "
+                          f"in all), got {str(value)[:80]!r}", usage)
+            outlines[key] = [np.array(line, dtype=np.float64) for line in value]
             continue
         if key == "size":
             if not (isinstance(value, (list, tuple)) and len(value) == 3 and all(_is_number(v) for v in value)):
@@ -180,6 +197,8 @@ def normalize_params(shape: str, raw: dict, where_fn: Callable[[str | None], str
             params[key] = value
     if shape == "extrude":
         _center_outlines(params, outlines, fail)
+    if shape == "strokes":
+        _center_strokes(params, outlines, fail)
     # Cross-parameter limits.
     rnd = params.get("round", 0.0)
     if shape == "box" and rnd > min(params["size"]) / 2:
@@ -237,9 +256,47 @@ def _center_outlines(params: dict, outlines: dict, fail) -> None:
     params["depth"] = float(side[:, 0].max() - side[:, 0].min())
 
 
+def _center_strokes(params: dict, outlines: dict, fail) -> None:
+    """Strokes in the shape's local frame: x centred on the lines' bounding box (grown by half the width),
+    y and z as `_center_outlines` does for an extrude with `side`."""
+    lines, side = outlines["points"], outlines.get("side")
+    allp = np.concatenate(lines)
+    w2 = params["width"] / 2.0
+    x0, x1 = allp[:, 0].min() - w2, allp[:, 0].max() + w2
+    y0, y1 = allp[:, 1].min() - w2, allp[:, 1].max() + w2
+    if side is None:
+        if params.get("depth") is None:
+            fail(None, "shape 'strokes' needs 'depth' (or 'side', the outline seen from the side)",
+                 "depth: d (along Z), or side: [[z, y], ...]")
+        cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        params["points"] = tuple(tuple((float(x - cx), float(y - cy)) for x, y in line) for line in lines)
+        return
+    if params.get("depth") is not None:
+        fail("depth", "give 'depth' or 'side', not both", "the side outline sets the depth")
+    lo, hi = max(y0, side[:, 1].min()), min(y1, side[:, 1].max())
+    if hi - lo <= 1e-6:
+        fail("side", f"the side outline (y {side[:, 1].min():g}..{side[:, 1].max():g}) shares no height with "
+             f"the lines (y {y0:g}..{y1:g})", "give both in the same y (e.g. world heights)")
+    cx = (x0 + x1) / 2.0
+    cz = (side[:, 0].min() + side[:, 0].max()) / 2.0
+    cy = (lo + hi) / 2.0
+    params["points"] = tuple(tuple((float(x - cx), float(y - cy)) for x, y in line) for line in lines)
+    params["side"] = tuple((float(z - cz), float(y - cy)) for z, y in side)
+    params["depth"] = float(side[:, 0].max() - side[:, 0].min())
+
+
+def _outline_points(params: dict) -> np.ndarray:
+    """Every outline point of an extrude, or of all the lines of a strokes shape grown by half the width."""
+    if isinstance(params["points"][0][0], tuple):  # strokes: lines of points
+        allp = np.concatenate([np.array(line, dtype=np.float64) for line in params["points"]])
+        w2 = params["width"] / 2.0
+        return np.concatenate([allp + [w2, w2], allp - [w2, w2]])
+    return np.array(params["points"], dtype=np.float64)
+
+
 def _extrude_height(params: dict) -> tuple[float, float]:
-    """Local y range of an extrude: the outline's, or with `side` the heights both outlines share."""
-    pts = np.array(params["points"], dtype=np.float64)
+    """Local y range of an extrude or strokes: the outline's, or with `side` the heights both share."""
+    pts = _outline_points(params)
     lo, hi = float(pts[:, 1].min()), float(pts[:, 1].max())
     if params.get("side") is not None:
         sd = np.array(params["side"], dtype=np.float64)
@@ -270,8 +327,8 @@ def local_half_extents(shape: str, params: dict) -> np.ndarray:
     """Half extents of the local bounding box (SPEC 4.1 table)."""
     if shape in ("box", "ellipsoid", "wedge"):
         return np.array(params["size"], dtype=np.float64) / 2.0
-    if shape == "extrude":
-        pts = np.array(params["points"], dtype=np.float64)
+    if shape in ("extrude", "strokes"):
+        pts = _outline_points(params)
         lo, hi = _extrude_height(params)
         return np.array([(pts[:, 0].max() - pts[:, 0].min()) / 2.0, (hi - lo) / 2.0, params["depth"] / 2.0])
     if shape == "sphere":
@@ -446,6 +503,10 @@ class Part:
                 return np.array([[sx * hx, y, sz * hz] for sx in (-1, 1) for y in (lo, hi) for sz in (-1, 1)],
                                 dtype=np.float64), 0.0
             return np.array([[x, y, z] for z in (-hz, hz) for x, y in p["points"]], dtype=np.float64), 0.0
+        if self.shape == "strokes":  # the box the lines (grown by half the width) and the depth span
+            hx, hy, hz = local_half_extents("strokes", p)
+            return np.array([[sx * hx, sy * hy, sz * hz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)],
+                            dtype=np.float64), 0.0
         if self.shape == "wedge":
             hx, hy, hz = (v / 2.0 for v in p["size"])
             tri = [(-hy, -hz), (hy, -hz), (-hy, hz)]
@@ -472,7 +533,7 @@ class Part:
         m, pos, p = self.matrix, self.position, self.params
         a = m[:, 1]  # world direction of the local Y axis
         across = np.sqrt(np.maximum(0.0, 1.0 - a * a))  # extent factor of a unit circle in local XZ
-        polygonal = self.shape in ("box", "wedge", "extrude") or (self.shape in ("cylinder", "cone") and p.get("sides"))
+        polygonal = self.shape in ("box", "wedge", "extrude", "strokes") or (self.shape in ("cylinder", "cone") and p.get("sides"))
         if polygonal:
             verts, grow = self._hull_vertices()
             world = verts @ m.T

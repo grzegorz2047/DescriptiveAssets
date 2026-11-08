@@ -232,6 +232,50 @@ def extrude(x, y, z, verts, hz: float, r: float = 0.0, side=None):
     return _extrude(d2, np.abs(z) - F32(hz))
 
 
+_SEG_CACHE: dict = {}
+
+
+def _seg_data(lines):
+    """Segment data of open polylines, computed once per `lines` object: (ax, ay, dx, dy, ee) as (1, E) rows."""
+    hit = _SEG_CACHE.get(id(lines))
+    if hit is not None and hit[0] is lines:
+        return hit[1]
+    a, b = [], []
+    for line in lines:
+        pts = np.asarray(line, dtype=np.float64)
+        a.append(pts[:-1])
+        b.append(pts[1:])
+    a, b = np.concatenate(a), np.concatenate(b)
+    d = b - a
+    ee = np.maximum((d * d).sum(axis=1), 1e-18)
+    data = tuple(v.astype(F32)[None, :] for v in (a[:, 0], a[:, 1], d[:, 0], d[:, 1], ee))
+    if len(_SEG_CACHE) > 256:
+        _SEG_CACHE.clear()
+    _SEG_CACHE[id(lines)] = (lines, data)
+    return data
+
+
+def polyline2(x, y, lines) -> np.ndarray:
+    """Unsigned distance to the nearest point of a set of open polylines (each 2+ points) in 2D."""
+    ax, ay, dx, dy, ee = _seg_data(lines)
+    px, py = np.asarray(x, dtype=F32).ravel(), np.asarray(y, dtype=F32).ravel()
+    out = np.empty(px.shape, dtype=F32)
+    for s in range(0, px.size, POLY_BATCH):
+        qx, qy = px[s:s + POLY_BATCH, None], py[s:s + POLY_BATCH, None]
+        t = np.clip(((qx - ax) * dx + (qy - ay) * dy) / ee, 0.0, 1.0)
+        out[s:s + POLY_BATCH] = np.hypot(qx - ax - t * dx, qy - ay - t * dy).min(axis=1)
+    return out.reshape(np.shape(x))
+
+
+def strokes(x, y, z, lines, width: float, hz: float, side=None):
+    """Open polylines in the XY plane drawn `width` wide (round ends), extruded over |z| <= hz, or bounded
+    by `side` (a polygon in the ZY plane) like `extrude`."""
+    d2 = polyline2(x, y, lines) - F32(width * 0.5)
+    if side is not None:
+        return _extrude(d2, polygon2(z, y, side))
+    return _extrude(d2, np.abs(z) - F32(hz))
+
+
 def smin(a, b, k: float):
     """Polynomial smooth minimum with radius k (k <= 0: hard min). 1-Lipschitz, <= min(a, b)."""
     if k <= 0.0:
@@ -263,6 +307,8 @@ def primitive(shape: str, params: dict, x, y, z):
         return wedge(x, y, z, hx * 0.5, hy * 0.5, hz * 0.5)
     if shape == "extrude":
         return extrude(x, y, z, params["points"], params["depth"] * 0.5, params["round"], params.get("side"))
+    if shape == "strokes":
+        return strokes(x, y, z, params["points"], params["width"], params["depth"] * 0.5, params.get("side"))
     raise ValueError(f"unknown shape {shape!r}")
 
 

@@ -188,6 +188,7 @@ Each shape has a local frame centered on its local bounding box, with Y as its m
 | `torus` | `radius` (ring center), `thickness` (tube radius); the ring lies in local XZ | 2(R+t), 2t, 2(R+t) |
 | `wedge` | `size: [w, h, d]`: triangular prism along X, full height at the back (−Z), sloping to 0 at the front edge (+Z) | w, h, d |
 | `extrude` | `points: [[x, y], ...]` (3..64 corners of an outline in the XY plane, as seen from the front, in order, no crossing edges), `depth` (along Z) **or** `side: [[z, y], ...]` (the outline seen from the side, same y as `points`), `round: r` (≤ depth/2) | outline width, shared height, depth |
+| `strokes` | `points: [[[x, y], ...], ...]` (1..128 open polylines of 2+ points in the XY plane, 1024 points in all), `width: w` (of every line, round ends), `depth` (along Z) **or** `side: [[z, y], ...]` as for `extrude` | lines' box grown by w/2, shared height, depth |
 
 - `sides: n` makes a regular n-gon with a **flat face toward +Z**; `radius` is the circumradius, so
   the flat face is at `radius · cos(180°/n)`. A door cut on `@[0, -1, 1]` of an 8-sided tower
@@ -240,14 +241,14 @@ bottom center of the front face and `@[0, 0.45, 0]` is 45% of the half-height ab
   part borders), in `match` and `structure` (as the part that colours those pixels), in the
   report's colour shares and in the export (the triangles inside a paint get its material, one
   glTF primitive per material). `visible` checks work on them (the share of their painted surface a
-  view shows). Up to 256 paints and 256 cuts, each apart from the 256 solids.
+  view shows). Up to 512 paints and 256 cuts, each apart from the 256 solids.
 
 ### 3.6 Validation
 
 Errors (with file, YAML path, line and a hint): unknown keys, unknown shape, missing/zero/negative
 sizes, unknown material (did-you-mean over the style's materials), forward or unknown references,
 unknown anchors, duplicate names after expansion, `round` too large, capsule height < 2r,
-`count` < 1, more than 256 solids (or 256 cuts, or 256 paints) after expansion, a cut with a material, a solid or
+`count` < 1, more than 256 solids (or 256 cuts, or 512 paints) after expansion, a cut with a material, a solid or
 paint without one, `blend` on a paint, `from` on a solid,
 `asset:` not equal to the file name.
 
@@ -559,10 +560,36 @@ painted so far (so a later picture paints only what the earlier ones left wrong)
 default. `--strip` first removes the `op: paint` entries whose names start with `--prefix` (the ones
 this command writes), `--strip-all` every paint, so the colours are read again on the current
 shapes after `fit` or `carve` moved or cut them. The report gives the paints added per view and the
-classes and divisions of every view before and after. Up to 256 paints.
+classes and divisions of every view before and after. Up to 512 paints.
 
 The round, in order: shapes by hand and `structure --trace` → `fit` → `carve` → `paint --strip` →
 `score --against <the previous file> --out out/<asset>/score.png`.
+
+### 5.6 Grooves and panel lines (`sightline detail`)
+
+`sightline detail <asset> [--views 0,2] [--prefix groove] [--res 1024] [--write | --out PATH] [--no-check] [--force] [--json]`
+
+`structure`'s DETAIL line counts the picture's inner edges (grooves, seams, panel lines inside the
+elements) that have a model part boundary within 2 px. `detail` draws the ones that have none and lie
+on no region border: their pixels are chained, each chain simplified to a polyline (Douglas-Peucker,
+at most 24 points), and the chains are grouped by the solid under them. Each group becomes one
+`op: paint` `strokes` entry on that solid (`from:` it): lines 1.5 picture pixels wide (at least 4 mm),
+the model's dark material, a side band from the surface's depth like a conformed paint (or `depth`
+when the band would cross itself), `mirror: x` from a side picture. A view's entries are measured
+before and after with `compare_structure` and stay when DETAIL rose and neither classes nor divisions
+fell by more than 0.5 points; the report says why a view was dropped. A dry run unless `--write` or
+`--out`; `--out` renames the copy's `asset:`. The checks run before and after, and a new failure
+refuses the write unless `--force`. The comparison runs at 1024 px by default: at 512 the seams of a
+concept picture mostly fall under the edge detector's thresholds (the robot reads DETAIL 90% at 512 and
+66% at 1024, and the pass finds 23 lines at 512 against 237 at 1024).
+
+```
+DETAIL  robot  assets/robot.yaml  res 1024  (103 strokes entries kept, 323 paints now, 275 s)
+VIEWS  inner edges of the picture with a model boundary within 2 px (DETAIL) before -> after; classes; divisions; lines drawn
+  reference[0] front  DETAIL 66% -> 77%   classes 88% -> 88%   divisions 78% -> 80%   77 lines in 39 entries (1770 px lacking)   kept
+  reference[1] back   DETAIL 51% -> 69%   classes 85% -> 85%   divisions 66% -> 71%   109 lines in 36 entries (2389 px lacking)   kept
+  reference[2] left   DETAIL 59% -> 70%   classes 88% -> 88%   divisions 70% -> 72%   51 lines in 28 entries (1241 px lacking)   kept
+```
 
 ## 6. Levels
 
@@ -666,6 +693,7 @@ anything behind tall walls are hidden: `top.png` shows everything.
 | `sightline carve <asset> [--res N] [--no-cuts] [--no-fills] [--holdout I,J] [--write\|--out PATH] [--no-check] [--force] [--json]` | cuts over what sticks out of the pictures and fills of what they all show (section 5.4); a dry run unless `--write` or `--out` |
 | `sightline score <asset> [--against PATH] [--versions label=PATH ...] [--res N] [--no-ceiling] [--out PNG] [--json]` | every reference on one table, and the concept-vs-model picture (section 5.5) |
 | `sightline paint <asset> [--order ...] [--strip\|--strip-all] [--prefix P] [--res N] [--write\|--out PATH] [--json]` | the colour pass over every reference (section 5.5); a dry run unless `--write` or `--out` |
+| `sightline detail <asset> [--views I,J] [--prefix P] [--res N] [--write\|--out PATH] [--no-check] [--force] [--json]` | grooves and panel lines from the pictures as `strokes` paints (section 5.6); a dry run unless `--write` or `--out` |
 | `sightline structure <asset>\|<image> [--index I] [--res N] [--height M] [--trace IDS\|disagree\|fix] [--depth M] [--conform] [--paint] [--out DIR] [--json]` | divisions inside the picture; with an asset, how its parts line up: `out/<asset>/structure_<i>.png` |
 | `sightline import <file.glb> [--name N] [--max-parts N] [--no-split] [--out PATH] [--force]` | `assets/<name>.yaml`: one fitted primitive per mesh piece |
 | `sightline level render\|play\|check <level> [--json] [--out DIR]` | `out/levels/<level>/iso.png`, `top.png`; the bot report; the checks |

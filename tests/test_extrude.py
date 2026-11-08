@@ -172,3 +172,73 @@ def test_extrude_loads_renders_and_exports_closed(scratch):
     assert w == pytest.approx(0.6, abs=0.03) and h == pytest.approx(0.55, abs=0.03)
     meshes = build_meshes(asset, 64)
     assert all(open_ == 0 and bad == 0 for _, open_, bad in edge_report(meshes))
+
+
+# ----------------------------------------------------------------------------- strokes
+
+
+def _line_dist(px, py, lines):
+    best = np.inf
+    for line in lines:
+        for a, b in zip(line[:-1], line[1:]):
+            a, b = np.array(a, float), np.array(b, float)
+            e, w = b - a, np.array([px, py]) - a
+            t = np.clip(w @ e / (e @ e), 0, 1)
+            best = min(best, np.hypot(*(w - e * t)))
+    return best
+
+
+def test_strokes_distance_matches_brute_force():
+    lines = ([[0, 0], [0.4, 0], [0.4, 0.3]], [[0.1, 0.2], [0.3, 0.25]])
+    rng = np.random.default_rng(5)
+    pts = rng.uniform(-0.2, 0.6, (300, 2))
+    d = sdf.polyline2(pts[:, 0].astype(np.float32), pts[:, 1].astype(np.float32), lines)
+    for (x, y), got in zip(pts, d):
+        assert got == pytest.approx(_line_dist(x, y, lines), abs=1e-5)
+    p = normalize_params("strokes", {"points": [list(map(list, l)) for l in lines], "width": 0.02, "depth": 0.05})
+    assert p["depth"] == 0.05 and len(p["points"]) == 2
+    # the lines are re-centred on their bounding box grown by half the width: x -0.21..0.21, y -0.16..0.16
+    allp = np.concatenate([np.array(l) for l in p["points"]])
+    assert allp[:, 0].min() == pytest.approx(-0.2) and allp[:, 0].max() == pytest.approx(0.2)
+    assert allp[:, 1].min() == pytest.approx(-0.15) and allp[:, 1].max() == pytest.approx(0.15)
+    d = sdf.evaluate("strokes", p, [[0.0, -0.15, 0.0], [0.0, -0.15, 0.1], [0.0, 0.0, 0.0]])
+    assert d[0] == pytest.approx(-0.01, abs=1e-5)  # on the first line, half the width inside
+    assert d[1] == pytest.approx(0.075, abs=1e-5)  # 0.1 beyond the slab's half depth 0.025
+    assert d[2] > 0.05
+    from sightline.model import local_half_extents
+    assert local_half_extents("strokes", p) == pytest.approx([0.21, 0.16, 0.025])
+
+
+def test_strokes_side_bounds_the_depth_like_extrude():
+    p = normalize_params("strokes", {"points": [[[0, 1.0], [0.4, 1.0]]], "width": 0.02,
+                                     "side": [[0, 0.9], [0.05, 0.9], [0.05, 1.1], [0, 1.1]]})
+    assert p["depth"] == pytest.approx(0.05)
+    d = sdf.evaluate("strokes", p, [[0.0, 0.0, 0.0], [0.0, 0.0, 0.03], [0.0, 0.0, -0.03]])
+    assert d[0] == pytest.approx(-0.01, abs=1e-5) and d[1] == pytest.approx(0.005, abs=1e-5) and d[2] == pytest.approx(0.005, abs=1e-5)
+
+
+@pytest.mark.parametrize("raw,message", [
+    ({"points": [[[0, 0]]], "width": 0.01, "depth": 0.1}, "2 or more"),
+    ({"points": [[[0, 0], [1, 0]]], "width": 0.01}, "needs 'depth'"),
+    ({"points": [[[0, 0], [1, 0]]], "width": 0.01, "depth": 0.1, "side": [[0, 0], [1, 0], [1, 1]]}, "not both"),
+    ({"points": [[[0, 0], [1, 0]]], "depth": 0.1}, "needs 'width'"),
+])
+def test_strokes_validation(raw, message):
+    with pytest.raises(SightlineError, match=re.escape(message)):
+        normalize_params("strokes", raw)
+
+
+def test_strokes_paint_renders_a_dark_line(scratch):
+    asset = load_asset_text(
+        "asset: grooved\nstyle: default\nparts:\n"
+        "  - {name: plate, shape: box, size: [1, 1, 0.1], material: paint_white, at: [0, 0, 0]}\n"
+        "  - {name: seam, shape: strokes, points: [[[-0.4, 0], [0.4, 0]]], width: 0.04, depth: 0.2, op: paint,"
+        " from: [plate], material: paint_black, at: [0, 0, 0]}\n",
+        scratch / "grooved.yaml", ROOT)
+    vr = render_raw(asset, ["front"], 128, scale_figure=False, ground=False)["front"]
+    arr = vr.rgb.astype(int)
+    ys, xs = np.nonzero(vr.coverage)
+    r, c = (ys.min() + ys.max()) // 2, (xs.min() + xs.max()) // 2
+    mid = arr[r, c].sum()
+    above = arr[r - 12, c].sum()
+    assert mid < above * 0.5, (mid, above)  # the seam is dark, the plate around it bright

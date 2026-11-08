@@ -203,7 +203,11 @@ the picture shows, ask about what it cannot show, and keep the model easy to cha
      patches picture / model, how many are the same one, how many the picture shows only dimly) and
      ceiling per reference (differences from the previous version in brackets), and the picture to show the designer: the
      concept of each view on top, one row per version under it, IoU under each tile. The round, in
-     order: shapes → `fit` → `carve` → `paint --strip` → `score`.
+     order: shapes → `fit` → `carve` → `paint --strip` → `detail` → `score`.
+   - Surface detail last: `sightline detail <asset> --out out/<asset>_detail.yaml` draws the grooves,
+     seams and panel lines the pictures show inside the elements as dark `strokes` paints along the
+     surface (one entry per solid and view), kept per view when `structure`'s DETAIL rises without
+     classes or divisions falling. It cannot add bolts, scratches or shading: those are the next step.
    - A rebuild from the pictures as one traced shell per body segment (another agent's robot) reached
      IoU 0.953 / 0.957 / 0.944 / 0.948 but classes 88-95% and divisions 80-84%: shells cover the plates
      and their seams do not follow the panel lines. Adding such shells to a plated model raised IoU by

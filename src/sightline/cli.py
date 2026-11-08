@@ -635,6 +635,45 @@ def cmd_carve(args) -> int:
     return EXIT_FAIL if rep.get("refused_write") else EXIT_OK
 
 
+def cmd_detail(args) -> int:
+    from .detail import detail_asset, format_detail
+    from .fit import edit_yaml
+
+    asset = _load(args.asset, args)
+    if args.write and args.out:
+        raise SightlineError("use --write or --out, not both", hint="--write changes the asset file; --out PATH writes a copy")
+
+    def log(msg):
+        print(f"detail: {msg}", file=sys.stderr, flush=True)
+
+    views = _split_ints(args.views) if args.views else None
+    rep = detail_asset(asset.path, asset.root, res=args.res, views=views, checks=not args.no_check, prefix=args.prefix, log=log)
+    target = pathlib.Path(asset.path) if args.write else (pathlib.Path(args.out) if args.out else None)
+    ck = rep.get("checks")
+    if target is not None and ck and ck["new_failures"] and not args.force:
+        rep["refused_write"] = "a check that passed before fails now (--force writes anyway)"
+        target = None
+    if target is not None and rep["entries"]:
+        text = rep["text"]
+        if target.resolve() != pathlib.Path(asset.path).resolve():
+            text = edit_yaml(text, {("asset",): target.stem})
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        rep["written"] = _show(target)
+    if args.json:
+        _json({k: v for k, v in rep.items() if k != "text"})
+    else:
+        sys.stdout.write(format_detail(rep))
+    return EXIT_FAIL if rep.get("refused_write") else EXIT_OK
+
+
+def _split_ints(text: str) -> list[int]:
+    try:
+        return [int(v) for v in text.split(",") if v.strip()]
+    except ValueError:
+        raise SightlineError(f"expected comma-separated reference indices, got {text!r}", hint="e.g. --views 0,2") from None
+
+
 def cmd_score(args) -> int:
     from .score import format_score, load_versions, score_asset, write_score_png
 
@@ -982,6 +1021,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--holdout", help="reference indices (comma-separated) to measure but never fit to: they show whether fitting the other pictures generalises")
     sp.add_argument("--write", action="store_true", help="add the kept pieces to the asset file (comments kept)")
     sp.add_argument("--out", help="write a carved copy to this path instead (its asset: name follows the file name)")
+    sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")
+    sp.add_argument("--force", action="store_true", help="write even if a check that passed before fails now")
+    sp.add_argument("--json", action="store_true")
+
+    sp = add("detail", cmd_detail, "draw the grooves, seams and panel lines the reference pictures show inside their "
+                                   "elements as dark strokes paints along the surface; a view's lines stay when "
+                                   "structure's DETAIL rises without classes or divisions falling")
+    sp.add_argument("asset")
+    sp.add_argument("--res", type=int, default=1024, help="render size of the comparison (default 1024: at 512 the "
+                                                            "seams of a concept picture are mostly below the edge detector)")
+    sp.add_argument("--views", help="reference indices (comma-separated) to read detail from (default all)")
+    sp.add_argument("--prefix", default="groove", help="name prefix of the strokes entries (default groove)")
+    sp.add_argument("--write", action="store_true", help="add the kept lines to the asset file (comments kept)")
+    sp.add_argument("--out", help="write a copy with the lines to this path instead (its asset: name follows the file name)")
     sp.add_argument("--no-check", action="store_true", help="do not run the asset's checks before and after")
     sp.add_argument("--force", action="store_true", help="write even if a check that passed before fails now")
     sp.add_argument("--json", action="store_true")

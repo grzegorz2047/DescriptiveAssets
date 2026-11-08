@@ -201,6 +201,12 @@ daje jedną tabelę ze wszystkimi miarami dla każdego obrazka oraz obrazek do p
 górze, pod nim wiersz na każdą wersję, z IoU pod każdym kafelkiem. Cięcia mają własny limit 256,
 osobny od brył, więc rzeźbienie nie zabiera miejsca częściom.
 
+**Rowki i linie paneli.** `sightline detail` czyta krawędzie, które obrazek ma wewnątrz elementów
+(rowki, szwy, linie paneli), a model nie, i rysuje je na powierzchni jako ciemne malowania kształtu
+`strokes` (otwarte linie o zadanej szerokości, po jednym wpisie na część i widok). Wiersz DETAIL w
+`structure` mówi, ile krawędzi wnętrza obrazka ma już odpowiednik w modelu; linie zostają, gdy ta
+miara rośnie, a materiały i podziały nie spadają.
+
 **Liczenie elementów.** Zgodność pikseli nie odróżni dwojga oczu od czworga: model z dodatkową lampą
 potrafi lepiej pasować do kilku zdjęć naraz. Wiersz `COUNTS` w `structure` i kolumna „lights" w `score`
 liczą osobne plamy każdej klasy na obrazku i w modelu i mówią, ile z nich to ten sam element; check

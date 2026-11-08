@@ -186,6 +186,7 @@ checks:                        # optional, see section 7
 | `torus` | `radius` (ring center radius), `thickness` (tube radius); ring lies in local XZ | 2(R+t), 2t, 2(R+t) |
 | `wedge` | `size: [w,h,d]` — triangular prism along X: full height at the back face (−Z), slope down to 0 at the front edge (+Z) | w, h, d |
 | `extrude` | `points: [[x, y], ...]` (3..64, no crossings), `depth` or `side: [[z, y], ...]` (the side outline; the shape is the intersection of both extrusions), `round` | outline w, shared h, depth |
+| `strokes` | `points: [[[x, y], ...], ...]` (1..`STROKES_MAX` = 128 open polylines of 2+ points, `STROKES_MAX_POINTS` = 1024 in all), `width`, `depth` or `side` as `extrude` | lines' box + w, shared h, depth |
 
 Polygon `sides`: a regular n-gon prism (or pyramid/frustum for `cone`) with a **flat face** toward
 +Z, so a door cut into the front of an octagonal tower sits on a face. `radius` is the
@@ -256,7 +257,7 @@ Applied in this order after placement of the base part: repeat, then mirror.
   all earlier solids) lies inside the paint's shape (`d_paint <= 0` at the hit point), it is coloured
   with the paint's `material`; the last paint in file order wins. Paints never count as solids
   (bounds, contacts, voxels, silhouettes); `blend` is an error, `material` is required. At most
-  256 paints and 256 cuts (`MAX_CUTS`), each counted apart from the 256 solids (`MAX_PARTS`).
+  512 paints (`MAX_PAINTS`) and 256 cuts (`MAX_CUTS`), each counted apart from the 256 solids (`MAX_PARTS`).
 - `tags: [...]` per part (free text, e.g. `door`, `walkable`). The tag `hidden` says the part (or cut)
   is expected out of sight (an interior or underside part): inspect gives it no low-visibility or
   "vanishes at 32 px" warning.
@@ -266,7 +267,7 @@ Applied in this order after placement of the base part: repeat, then mirror.
 Errors (SightlineError with `where` and `hint`): unknown top-level or part keys, unknown shape,
 missing/negative/zero sizes, unknown material (did_you_mean over the style's materials), forward
 or unknown references, unknown anchor, duplicate names after expansion, `round` too large,
-capsule height < 2r, `count` < 1, more than 256 solids (cuts, paints) after expansion, cut with material, solid
+capsule height < 2r, `count` < 1, more than 256 solids (256 cuts, 512 paints) after expansion, cut with material, solid
 without material. `asset:` must equal the file stem.
 
 ## 5. Model (`model.py`) — the in-memory contract
@@ -1348,6 +1349,31 @@ azimuth a and −a give mirror images of symmetric objects).
   of every reference before and after.
 - Report: `order`, `stripped`, `steps` (index, view, paints, skipped), `views` (classes and divisions
   before/after), `paints`, `max_paints`, `seconds`, `text`; `format_paint`. CLI as `fit` (no checks).
+
+### 12.9 Grooves (`detail.py`) — `detail_asset(path, root=None, *, res=1024, views=None, checks=True, prefix="groove", log=None) -> dict`
+
+- `missing_edges(rep)`: `compare_structure`'s picture edges inside both outlines' 2 px erosions with no
+  model part boundary (surface ids, paints included) and no picture region border within `NEAR_PX`.
+- `chains(mask)`: components of the mask dilated by 1 px, each ordered by a nearest-neighbour walk
+  from the pixel farthest from the centre, broken at jumps > `CHAIN_JUMP_PX` = 2.5; chains under
+  `MIN_CHAIN_PX` = 8 are dropped. `simplify_open(line)`: Douglas-Peucker on an open polyline, `eps`
+  from `CHAIN_EPS_PX` = 1 growing ×1.5 until ≤ `MAX_LINE_POINTS` = 24 remain.
+- Entries: chains grouped by the solid most of their hit pixels lie on (`ViewBuffers.part`), at most
+  `MAX_LINES` = 96 lines and `STROKES_MAX_POINTS` per entry: `shape: strokes`, points in the view frame
+  (camera right, up; `rotate: [0, yaw, 0]` as the tracer), `width` = max(`GROOVE_MIN_WIDTH` = 4 mm,
+  `GROOVE_WIDTH_PX` = 1.5 × mpp), `side` = `_side_band` of the per-row max/min surface depth ±
+  `PAINT_MARGIN` (or `depth` when the band crosses itself), `op: paint`, `from: [solid]`, the dark
+  material of `_class_materials`, `mirror: x` from a side view; appended as flow mappings before
+  `checks:`, within `MAX_PAINTS`.
+- Guard per view: `_figures` (DETAIL = `edges_on_part_boundaries`, classes areas, divisions = mean of
+  rb/pb) before and after on the trial asset; kept when DETAIL rose and classes and divisions did not
+  fall by more than `FLOOR` = 0.005; the kept text is the base for the next view. Report: `views`
+  rows (before, after, entries, lines, missing_px, kept, why), `entries`, `paints`, `checks`
+  (passed before/after, new_failures), `text`; `format_detail`.
+- SDF (`sdf.strokes`): `polyline2` (unsigned distance to the nearest segment, segment data cached per
+  `lines` object, `POLY_BATCH` points at a time) minus width/2, extruded over |z| ≤ depth/2 or bounded
+  by the `side` polygon as `extrude`. `normalize_params` centres the lines' box grown by width/2
+  (`_center_strokes`); bounds from that box (`_outline_points`, `local_half_extents`, `_hull_vertices`).
 
 ## 13. Import (`importer.py`)
 
